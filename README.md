@@ -1,4 +1,4 @@
-# DevNest 1.2.2
+# DevNest 1.2.3
 
 DevNest is a native, offline-first desktop workspace for developers. It combines rich notes, click-to-complete checklists, lightweight task planning, TXT portability, Trash/restore, and per-note diagrams in one PySide6 application.
 
@@ -456,4 +456,4 @@ Check `logs\devnest.log` under the DevNest application-data directory. Before ma
 
 ## Version
 
-The application version is defined once in `app/constants.py` as `VERSION = "1.2.2"`. The window metadata and About dialog read from this value.
+The application version is defined once in `app/constants.py` as `VERSION = "1.2.3"`. The window metadata and About dialog read from this value.

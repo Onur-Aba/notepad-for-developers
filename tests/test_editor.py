@@ -15,6 +15,19 @@ def app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
+def _character_strike_out(editor: NoteEditor, position: int) -> bool:
+    """Return the format of the character that starts at *position*.
+
+    QTextCursor.charFormat() at a bare boundary position describes the cursor's
+    insertion format and can reflect the character immediately before it.
+    Selecting the character makes the assertion deterministic across Qt builds.
+    """
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(position)
+    cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+    return cursor.charFormat().fontStrikeOut()
+
+
 def test_checkbox_toggle_applies_and_removes_strike(app: QApplication) -> None:
     editor = NoteEditor()
     editor.setPlainText("☐ API'yi hazırla")
@@ -22,14 +35,19 @@ def test_checkbox_toggle_applies_and_removes_strike(app: QApplication) -> None:
     editor.toggle_checkbox(block)
     assert editor.toPlainText().startswith("☑")
 
-    cursor = QTextCursor(editor.document())
-    cursor.setPosition(block.position() + 2)
-    assert cursor.charFormat().fontStrikeOut() is True
+    checked_block = editor.document().firstBlock()
+    first_task_char = checked_block.position() + 2
+    last_task_char = checked_block.position() + len(checked_block.text()) - 1
+    assert _character_strike_out(editor, first_task_char) is True
+    assert _character_strike_out(editor, last_task_char) is True
 
-    editor.toggle_checkbox(editor.document().firstBlock())
+    editor.toggle_checkbox(checked_block)
     assert editor.toPlainText().startswith("☐")
-    cursor.setPosition(editor.document().firstBlock().position() + 2)
-    assert cursor.charFormat().fontStrikeOut() is False
+    unchecked_block = editor.document().firstBlock()
+    first_task_char = unchecked_block.position() + 2
+    last_task_char = unchecked_block.position() + len(unchecked_block.text()) - 1
+    assert _character_strike_out(editor, first_task_char) is False
+    assert _character_strike_out(editor, last_task_char) is False
 
 
 def test_imported_checkbox_html_stays_recognizable(app: QApplication) -> None:
