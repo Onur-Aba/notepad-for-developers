@@ -17,6 +17,7 @@ class NoteEditor(QTextEdit):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.auto_checkbox_enabled = True
+        self.blank_line_after_enter = False
         self.tab_spaces = TAB_SPACES
         self.base_font_size = 12
         self.setAcceptRichText(True)
@@ -39,19 +40,19 @@ class NoteEditor(QTextEdit):
             return
         fmt = QTextCharFormat()
         fmt.setFontFamilies([family])
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def apply_font_point_size(self, size: int) -> None:
         size = max(8, min(48, int(size)))
         fmt = QTextCharFormat()
         fmt.setFontPointSize(float(size))
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def apply_font_weight(self, weight: int) -> None:
         weight = max(100, min(900, int(round(weight / 100.0) * 100)))
         fmt = QTextCharFormat()
         fmt.setFontWeight(weight)
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def set_tab_width(self, spaces: int) -> None:
         self.tab_spaces = max(2, min(8, spaces))
@@ -60,6 +61,9 @@ class NoteEditor(QTextEdit):
 
     def set_auto_checkbox(self, enabled: bool) -> None:
         self.auto_checkbox_enabled = enabled
+
+    def set_blank_line_after_enter(self, enabled: bool) -> None:
+        self.blank_line_after_enter = enabled
 
     def insert_checkbox(self) -> None:
         cursor = self.textCursor()
@@ -126,7 +130,7 @@ class NoteEditor(QTextEdit):
         fmt = QTextCharFormat()
         current = self.textCursor().charFormat().fontWeight()
         fmt.setFontWeight(QFont.Weight.Normal if current >= QFont.Weight.Bold else QFont.Weight.Bold)
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def toggle_italic(self) -> None:
         fmt = QTextCharFormat()
@@ -147,6 +151,69 @@ class NoteEditor(QTextEdit):
         cursor = self.textCursor()
         cursor.mergeCharFormat(fmt)
         self.mergeCurrentCharFormat(fmt)
+
+    def _merge_font_format(self, fmt: QTextCharFormat) -> None:
+        """Apply font properties without leaving task/list markers behind.
+
+        Checkbox markers are ordinary document characters, while Qt bullet and
+        numbered-list markers are block decorations.  When the cursor is on a
+        decorated line we therefore update both the text fragments and the
+        block character format used to paint the list marker.
+        """
+        visible_cursor = self.textCursor()
+        start = visible_cursor.selectionStart()
+        end = visible_cursor.selectionEnd()
+
+        if visible_cursor.hasSelection():
+            visible_cursor.mergeCharFormat(fmt)
+            self._format_decorated_markers(start, end, fmt)
+            self.setTextCursor(visible_cursor)
+            self.mergeCurrentCharFormat(fmt)
+            return
+
+        block = visible_cursor.block()
+        is_task = bool(TASK_LINE_RE.match(block.text()))
+        is_list_item = block.textList() is not None
+        if is_task or is_list_item:
+            line_cursor = QTextCursor(self.document())
+            line_cursor.setPosition(block.position())
+            line_cursor.setPosition(block.position() + len(block.text()), QTextCursor.MoveMode.KeepAnchor)
+            if line_cursor.hasSelection():
+                line_cursor.mergeCharFormat(fmt)
+            if is_list_item:
+                block_cursor = QTextCursor(block)
+                block_cursor.mergeBlockCharFormat(fmt)
+            self.setTextCursor(visible_cursor)
+            self.mergeCurrentCharFormat(fmt)
+            return
+
+        visible_cursor.mergeCharFormat(fmt)
+        self.setTextCursor(visible_cursor)
+        self.mergeCurrentCharFormat(fmt)
+
+    def _format_decorated_markers(self, start: int, end: int, fmt: QTextCharFormat) -> None:
+        document = self.document()
+        block = document.findBlock(start)
+        if end > start and document.findBlock(end).position() == end:
+            last_position = max(start, end - 1)
+        else:
+            last_position = end
+        last_block = document.findBlock(last_position)
+
+        while block.isValid():
+            task_match = TASK_LINE_RE.match(block.text())
+            if task_match:
+                marker_position = block.position() + len(task_match.group("indent"))
+                marker_cursor = QTextCursor(document)
+                marker_cursor.setPosition(marker_position)
+                marker_cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+                marker_cursor.mergeCharFormat(fmt)
+            if block.textList() is not None:
+                block_cursor = QTextCursor(block)
+                block_cursor.mergeBlockCharFormat(fmt)
+            if block == last_block:
+                break
+            block = block.next()
 
     def set_heading(self, level: int) -> None:
         sizes = {0: self.base_font_size, 1: self.base_font_size + 10, 2: self.base_font_size + 6, 3: self.base_font_size + 3}
@@ -178,8 +245,11 @@ class NoteEditor(QTextEdit):
         key = event.key()
         modifiers = event.modifiers()
 
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.auto_checkbox_enabled:
-            if self._handle_task_enter():
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.auto_checkbox_enabled and self._handle_task_enter():
+                return
+            if self.blank_line_after_enter:
+                self._handle_spaced_enter(event)
                 return
 
         if key == Qt.Key.Key_Tab and not (modifiers & Qt.KeyboardModifier.ControlModifier):
@@ -216,6 +286,8 @@ class NoteEditor(QTextEdit):
         checked = match.group("marker") == "☑"
         cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
         cursor.insertBlock()
+        if self.blank_line_after_enter:
+            cursor.insertBlock()
         cursor.insertText(f"{indent}☐ ")
         self.setTextCursor(cursor)
         self._apply_task_style(block, checked=checked)
@@ -224,6 +296,13 @@ class NoteEditor(QTextEdit):
         reset_fmt.setFontStrikeOut(False)
         self.mergeCurrentCharFormat(reset_fmt)
         return True
+
+    def _handle_spaced_enter(self, event: QKeyEvent) -> None:
+        """Handle Enter as two native Enter presses, leaving one blank line."""
+        super().keyPressEvent(event)
+        cursor = self.textCursor()
+        cursor.insertBlock()
+        self.setTextCursor(cursor)
 
     def _handle_task_indent(self, outdent: bool) -> bool:
         cursor = self.textCursor()

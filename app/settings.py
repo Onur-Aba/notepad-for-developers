@@ -16,6 +16,7 @@ class AppPreferences:
     editor_font_size: int = 12
     tab_width: int = 4
     auto_checkbox_default: bool = True
+    blank_line_after_enter: bool = False
     word_wrap: bool = True
 
 
@@ -32,6 +33,7 @@ class SettingsManager:
             editor_font_size=int(self.qsettings.value("editor/font_size", 12)),
             tab_width=int(self.qsettings.value("editor/tab_width", 4)),
             auto_checkbox_default=self._bool("editor/auto_checkbox_default", True),
+            blank_line_after_enter=self._bool("editor/blank_line_after_enter", False),
             word_wrap=self._bool("editor/word_wrap", True),
         )
 
@@ -43,6 +45,7 @@ class SettingsManager:
         self.qsettings.setValue("editor/font_size", prefs.editor_font_size)
         self.qsettings.setValue("editor/tab_width", prefs.tab_width)
         self.qsettings.setValue("editor/auto_checkbox_default", prefs.auto_checkbox_default)
+        self.qsettings.setValue("editor/blank_line_after_enter", prefs.blank_line_after_enter)
         self.qsettings.setValue("editor/word_wrap", prefs.word_wrap)
         self.qsettings.sync()
 

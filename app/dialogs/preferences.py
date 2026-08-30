@@ -48,11 +48,15 @@ class PreferencesDialog(QDialog):
         self.tab_width.setValue(prefs.tab_width)
         self.auto_checkbox = QCheckBox("Auto Checkbox by default")
         self.auto_checkbox.setChecked(prefs.auto_checkbox_default)
+        self.blank_line_after_enter = QCheckBox("Leave one blank line after Enter")
+        self.blank_line_after_enter.setChecked(prefs.blank_line_after_enter)
+        self.blank_line_after_enter.setToolTip("Pressing Enter advances by two lines, leaving one empty line in between.")
         self.word_wrap = QCheckBox("Word wrap")
         self.word_wrap.setChecked(prefs.word_wrap)
         editor_form.addRow("Font size:", self.font_size)
         editor_form.addRow("Tab width (spaces):", self.tab_width)
         editor_form.addRow(self.auto_checkbox)
+        editor_form.addRow(self.blank_line_after_enter)
         editor_form.addRow(self.word_wrap)
 
         appearance = QGroupBox("Appearance")
@@ -82,5 +86,6 @@ class PreferencesDialog(QDialog):
             editor_font_size=self.font_size.value(),
             tab_width=self.tab_width.value(),
             auto_checkbox_default=self.auto_checkbox.isChecked(),
+            blank_line_after_enter=self.blank_line_after_enter.isChecked(),
             word_wrap=self.word_wrap.isChecked(),
         )

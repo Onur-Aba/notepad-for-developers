@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.3-2f81f7?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-2f81f7?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
@@ -50,8 +50,8 @@ Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya gönder
 | Alan | Özellikler |
 |---|---|
 | **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
-| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri |
-| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği |
+| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
+| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
 | **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
 | **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
 | **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
@@ -261,8 +261,8 @@ Yeni bir sürüm yayınlarken:
 
 1. GitHub repository sayfasında **Releases** bölümünü açın.
 2. **Draft a new release** seçin.
-3. Örneğin `v1.2.3` şeklinde bir tag oluşturun.
-4. Release başlığını örneğin `DevNest 1.2.3` yapın.
+3. Örneğin `v1.2.4` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 1.2.4` yapın.
 5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
 6. Release'i yayınlayın.
 
@@ -307,7 +307,7 @@ It does not require a browser, an account or a network connection. Notes stay on
 | Area | Features |
 |---|---|
 | **Notes** | Fast note creation, search, rename, duplicate and sorting |
-| **Editor** | Bold, italic, underline, strikethrough, lists, font / size / weight controls |
+| **Editor** | Bold, italic, underline, strikethrough, lists, font / size / weight controls; checkbox and list markers follow font formatting |
 | **Tasks** | Clickable `☐ / ☑` items, automatic strikethrough, Auto Checkbox and nested tasks |
 | **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` detection with UTF-8 import/export |
 | **Diagrams** | Drag-to-size shapes, text, directional connectors, zoom, pan and resize |
@@ -518,8 +518,8 @@ When publishing a new version:
 
 1. Open **Releases** in the GitHub repository.
 2. Select **Draft a new release**.
-3. Create a tag such as `v1.2.3`.
-4. Use a release title such as `DevNest 1.2.3`.
+3. Create a tag such as `v1.2.4`.
+4. Use a release title such as `DevNest 1.2.4`.
 5. Upload `dist\DevNest.exe` as a release asset.
 6. Publish the release.
 
@@ -562,5 +562,5 @@ PyInstaller
 DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
 
 <p align="center">
-  <sub>DevNest 1.2.3 · Native desktop workspace for everyday development notes and planning.</sub>
+  <sub>DevNest 1.2.4 · Native desktop workspace for everyday development notes and planning.</sub>
 </p>

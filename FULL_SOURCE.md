@@ -1,11 +1,10 @@
-# DevNest 1.2.3 — Full Source
+# DevNest 1.2.4 — Full Source
 
-This file contains the complete text-source snapshot for DevNest 1.2.3. Binary icon files are included in the ZIP but intentionally not embedded here.
-
+This file contains the complete text-source snapshot for DevNest 1.2.4. Binary icon files are included in the ZIP but intentionally not embedded here.
 
 ## `.gitignore`
 
-````text
+````gitignore
 .venv/
 __pycache__/
 *.py[cod]
@@ -15,7 +14,6 @@ dist/
 *.log
 ````
 
-
 ## `app/__init__.py`
 
 ````python
@@ -23,7 +21,6 @@ from app.constants import VERSION
 
 __all__ = ["VERSION"]
 ````
-
 
 ## `app/constants.py`
 
@@ -33,7 +30,7 @@ from __future__ import annotations
 APP_NAME = "DevNest"
 ORGANIZATION_NAME = "DevNest"
 ORGANIZATION_DOMAIN = "devnest.local"
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 DEFAULT_NOTE_TITLE = "Untitled Note"
 DEFAULT_AUTOSAVE_DELAY_MS = 750
 MIN_AUTOSAVE_DELAY_MS = 300
@@ -57,7 +54,6 @@ SHORTCUTS: dict[str, str] = {
     "Delete Selected Diagram Item": "Delete",
 }
 ````
-
 
 ## `app/database.py`
 
@@ -379,13 +375,11 @@ class Database:
         self.close()
 ````
 
-
 ## `app/dialogs/__init__.py`
 
 ````python
 
 ````
-
 
 ## `app/dialogs/preferences.py`
 
@@ -440,11 +434,15 @@ class PreferencesDialog(QDialog):
         self.tab_width.setValue(prefs.tab_width)
         self.auto_checkbox = QCheckBox("Auto Checkbox by default")
         self.auto_checkbox.setChecked(prefs.auto_checkbox_default)
+        self.blank_line_after_enter = QCheckBox("Leave one blank line after Enter")
+        self.blank_line_after_enter.setChecked(prefs.blank_line_after_enter)
+        self.blank_line_after_enter.setToolTip("Pressing Enter advances by two lines, leaving one empty line in between.")
         self.word_wrap = QCheckBox("Word wrap")
         self.word_wrap.setChecked(prefs.word_wrap)
         editor_form.addRow("Font size:", self.font_size)
         editor_form.addRow("Tab width (spaces):", self.tab_width)
         editor_form.addRow(self.auto_checkbox)
+        editor_form.addRow(self.blank_line_after_enter)
         editor_form.addRow(self.word_wrap)
 
         appearance = QGroupBox("Appearance")
@@ -474,10 +472,10 @@ class PreferencesDialog(QDialog):
             editor_font_size=self.font_size.value(),
             tab_width=self.tab_width.value(),
             auto_checkbox_default=self.auto_checkbox.isChecked(),
+            blank_line_after_enter=self.blank_line_after_enter.isChecked(),
             word_wrap=self.word_wrap.isChecked(),
         )
 ````
-
 
 ## `app/dialogs/shortcuts.py`
 
@@ -508,7 +506,6 @@ class ShortcutsDialog(QDialog):
         root.addWidget(table)
         root.addWidget(buttons)
 ````
-
 
 ## `app/dialogs/trash.py`
 
@@ -661,7 +658,6 @@ class TrashDialog(QDialog):
         except DatabaseError as exc:
             QMessageBox.critical(self, "Optimize Failed", str(exc))
 ````
-
 
 ## `app/main_window.py`
 
@@ -854,6 +850,10 @@ class MainWindow(QMainWindow):
         self.auto_checkbox_action = QAction("Auto Checkbox", self)
         self.auto_checkbox_action.setCheckable(True)
         self.auto_checkbox_action.toggled.connect(self._set_auto_checkbox)
+        self.blank_line_enter_action = QAction("Blank Line After Enter", self)
+        self.blank_line_enter_action.setCheckable(True)
+        self.blank_line_enter_action.setToolTip("Leave one empty line whenever Enter is pressed")
+        self.blank_line_enter_action.toggled.connect(self._set_blank_line_after_enter)
 
         self.bold_action = QAction("Bold", self)
         self.bold_action.setShortcut(QKeySequence.StandardKey.Bold)
@@ -1096,6 +1096,7 @@ class MainWindow(QMainWindow):
         for action in [
             self.checkbox_action,
             self.auto_checkbox_action,
+            self.blank_line_enter_action,
             self.bold_action,
             self.italic_action,
             self.underline_action,
@@ -1424,12 +1425,21 @@ class MainWindow(QMainWindow):
         self.auto_checkbox_action.setChecked(auto_enabled)
         self.auto_checkbox_action.blockSignals(False)
         self.editor.set_auto_checkbox(auto_enabled)
+        self.blank_line_enter_action.blockSignals(True)
+        self.blank_line_enter_action.setChecked(prefs.blank_line_after_enter)
+        self.blank_line_enter_action.blockSignals(False)
+        self.editor.set_blank_line_after_enter(prefs.blank_line_after_enter)
         self.set_theme(prefs.theme, persist=persist)
 
     def _set_auto_checkbox(self, enabled: bool) -> None:
         self.editor.set_auto_checkbox(enabled)
         self.preferences.auto_checkbox_default = enabled
         self.settings.set_value("editor/auto_checkbox_default", enabled)
+
+    def _set_blank_line_after_enter(self, enabled: bool) -> None:
+        self.editor.set_blank_line_after_enter(enabled)
+        self.preferences.blank_line_after_enter = enabled
+        self.settings.set_value("editor/blank_line_after_enter", enabled)
 
     def set_theme(self, theme: str, persist: bool = True) -> None:
         self.theme_manager.apply(theme)
@@ -1522,7 +1532,6 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Database Error", str(exc))
 ````
 
-
 ## `app/models.py`
 
 ````python
@@ -1551,7 +1560,6 @@ class NoteSummary:
     updated_at: str
     is_deleted: bool
 ````
-
 
 ## `app/paths.py`
 
@@ -1585,13 +1593,11 @@ def resource_path(relative: str) -> Path:
     return base / relative
 ````
 
-
 ## `app/services/__init__.py`
 
 ````python
 
 ````
-
 
 ## `app/services/logging_setup.py`
 
@@ -1618,7 +1624,6 @@ def configure_logging() -> None:
     handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
     root.addHandler(handler)
 ````
-
 
 ## `app/services/txt_codec.py`
 
@@ -1727,7 +1732,6 @@ def write_utf8_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 ````
 
-
 ## `app/settings.py`
 
 ````python
@@ -1749,6 +1753,7 @@ class AppPreferences:
     editor_font_size: int = 12
     tab_width: int = 4
     auto_checkbox_default: bool = True
+    blank_line_after_enter: bool = False
     word_wrap: bool = True
 
 
@@ -1765,6 +1770,7 @@ class SettingsManager:
             editor_font_size=int(self.qsettings.value("editor/font_size", 12)),
             tab_width=int(self.qsettings.value("editor/tab_width", 4)),
             auto_checkbox_default=self._bool("editor/auto_checkbox_default", True),
+            blank_line_after_enter=self._bool("editor/blank_line_after_enter", False),
             word_wrap=self._bool("editor/word_wrap", True),
         )
 
@@ -1776,6 +1782,7 @@ class SettingsManager:
         self.qsettings.setValue("editor/font_size", prefs.editor_font_size)
         self.qsettings.setValue("editor/tab_width", prefs.tab_width)
         self.qsettings.setValue("editor/auto_checkbox_default", prefs.auto_checkbox_default)
+        self.qsettings.setValue("editor/blank_line_after_enter", prefs.blank_line_after_enter)
         self.qsettings.setValue("editor/word_wrap", prefs.word_wrap)
         self.qsettings.sync()
 
@@ -1810,13 +1817,11 @@ class SettingsManager:
         return bool(value)
 ````
 
-
 ## `app/themes/__init__.py`
 
 ````python
 
 ````
-
 
 ## `app/themes/theme_manager.py`
 
@@ -2118,20 +2123,17 @@ class ThemeManager:
         return palette.color(QPalette.ColorRole.Window).lightness() < 128
 ````
 
-
 ## `app/utils/__init__.py`
 
 ````python
 
 ````
 
-
 ## `app/widgets/__init__.py`
 
 ````python
 
 ````
-
 
 ## `app/widgets/diagram_view.py`
 
@@ -3353,7 +3355,6 @@ class DiagramView(QWidget):
         self.scene.delete_selected()
 ````
 
-
 ## `app/widgets/note_editor.py`
 
 ````python
@@ -3376,6 +3377,7 @@ class NoteEditor(QTextEdit):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.auto_checkbox_enabled = True
+        self.blank_line_after_enter = False
         self.tab_spaces = TAB_SPACES
         self.base_font_size = 12
         self.setAcceptRichText(True)
@@ -3398,19 +3400,19 @@ class NoteEditor(QTextEdit):
             return
         fmt = QTextCharFormat()
         fmt.setFontFamilies([family])
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def apply_font_point_size(self, size: int) -> None:
         size = max(8, min(48, int(size)))
         fmt = QTextCharFormat()
         fmt.setFontPointSize(float(size))
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def apply_font_weight(self, weight: int) -> None:
         weight = max(100, min(900, int(round(weight / 100.0) * 100)))
         fmt = QTextCharFormat()
         fmt.setFontWeight(weight)
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def set_tab_width(self, spaces: int) -> None:
         self.tab_spaces = max(2, min(8, spaces))
@@ -3419,6 +3421,9 @@ class NoteEditor(QTextEdit):
 
     def set_auto_checkbox(self, enabled: bool) -> None:
         self.auto_checkbox_enabled = enabled
+
+    def set_blank_line_after_enter(self, enabled: bool) -> None:
+        self.blank_line_after_enter = enabled
 
     def insert_checkbox(self) -> None:
         cursor = self.textCursor()
@@ -3485,7 +3490,7 @@ class NoteEditor(QTextEdit):
         fmt = QTextCharFormat()
         current = self.textCursor().charFormat().fontWeight()
         fmt.setFontWeight(QFont.Weight.Normal if current >= QFont.Weight.Bold else QFont.Weight.Bold)
-        self._merge_format(fmt)
+        self._merge_font_format(fmt)
 
     def toggle_italic(self) -> None:
         fmt = QTextCharFormat()
@@ -3506,6 +3511,69 @@ class NoteEditor(QTextEdit):
         cursor = self.textCursor()
         cursor.mergeCharFormat(fmt)
         self.mergeCurrentCharFormat(fmt)
+
+    def _merge_font_format(self, fmt: QTextCharFormat) -> None:
+        """Apply font properties without leaving task/list markers behind.
+
+        Checkbox markers are ordinary document characters, while Qt bullet and
+        numbered-list markers are block decorations.  When the cursor is on a
+        decorated line we therefore update both the text fragments and the
+        block character format used to paint the list marker.
+        """
+        visible_cursor = self.textCursor()
+        start = visible_cursor.selectionStart()
+        end = visible_cursor.selectionEnd()
+
+        if visible_cursor.hasSelection():
+            visible_cursor.mergeCharFormat(fmt)
+            self._format_decorated_markers(start, end, fmt)
+            self.setTextCursor(visible_cursor)
+            self.mergeCurrentCharFormat(fmt)
+            return
+
+        block = visible_cursor.block()
+        is_task = bool(TASK_LINE_RE.match(block.text()))
+        is_list_item = block.textList() is not None
+        if is_task or is_list_item:
+            line_cursor = QTextCursor(self.document())
+            line_cursor.setPosition(block.position())
+            line_cursor.setPosition(block.position() + len(block.text()), QTextCursor.MoveMode.KeepAnchor)
+            if line_cursor.hasSelection():
+                line_cursor.mergeCharFormat(fmt)
+            if is_list_item:
+                block_cursor = QTextCursor(block)
+                block_cursor.mergeBlockCharFormat(fmt)
+            self.setTextCursor(visible_cursor)
+            self.mergeCurrentCharFormat(fmt)
+            return
+
+        visible_cursor.mergeCharFormat(fmt)
+        self.setTextCursor(visible_cursor)
+        self.mergeCurrentCharFormat(fmt)
+
+    def _format_decorated_markers(self, start: int, end: int, fmt: QTextCharFormat) -> None:
+        document = self.document()
+        block = document.findBlock(start)
+        if end > start and document.findBlock(end).position() == end:
+            last_position = max(start, end - 1)
+        else:
+            last_position = end
+        last_block = document.findBlock(last_position)
+
+        while block.isValid():
+            task_match = TASK_LINE_RE.match(block.text())
+            if task_match:
+                marker_position = block.position() + len(task_match.group("indent"))
+                marker_cursor = QTextCursor(document)
+                marker_cursor.setPosition(marker_position)
+                marker_cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+                marker_cursor.mergeCharFormat(fmt)
+            if block.textList() is not None:
+                block_cursor = QTextCursor(block)
+                block_cursor.mergeBlockCharFormat(fmt)
+            if block == last_block:
+                break
+            block = block.next()
 
     def set_heading(self, level: int) -> None:
         sizes = {0: self.base_font_size, 1: self.base_font_size + 10, 2: self.base_font_size + 6, 3: self.base_font_size + 3}
@@ -3537,8 +3605,11 @@ class NoteEditor(QTextEdit):
         key = event.key()
         modifiers = event.modifiers()
 
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.auto_checkbox_enabled:
-            if self._handle_task_enter():
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.auto_checkbox_enabled and self._handle_task_enter():
+                return
+            if self.blank_line_after_enter:
+                self._handle_spaced_enter(event)
                 return
 
         if key == Qt.Key.Key_Tab and not (modifiers & Qt.KeyboardModifier.ControlModifier):
@@ -3575,6 +3646,8 @@ class NoteEditor(QTextEdit):
         checked = match.group("marker") == "☑"
         cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
         cursor.insertBlock()
+        if self.blank_line_after_enter:
+            cursor.insertBlock()
         cursor.insertText(f"{indent}☐ ")
         self.setTextCursor(cursor)
         self._apply_task_style(block, checked=checked)
@@ -3583,6 +3656,13 @@ class NoteEditor(QTextEdit):
         reset_fmt.setFontStrikeOut(False)
         self.mergeCurrentCharFormat(reset_fmt)
         return True
+
+    def _handle_spaced_enter(self, event: QKeyEvent) -> None:
+        """Handle Enter as two native Enter presses, leaving one blank line."""
+        super().keyPressEvent(event)
+        cursor = self.textCursor()
+        cursor.insertBlock()
+        self.setTextCursor(cursor)
 
     def _handle_task_indent(self, outdent: bool) -> bool:
         cursor = self.textCursor()
@@ -3635,7 +3715,6 @@ class NoteEditor(QTextEdit):
         strike.triggered.connect(self.toggle_strikethrough)
         menu.exec(event.globalPos())
 ````
-
 
 ## `app/widgets/sidebar.py`
 
@@ -3797,7 +3876,6 @@ class Sidebar(QWidget):
             self.deleteRequested.emit(note_id)
 ````
 
-
 ## `build.ps1`
 
 ````powershell
@@ -3882,7 +3960,6 @@ if ($OneFile) {
 Write-Host "User notes remain in Windows AppData, not beside the executable."
 ````
 
-
 ## `DevNest.spec`
 
 ````python
@@ -3956,7 +4033,6 @@ else:
     )
 ````
 
-
 ## `main.py`
 
 ````python
@@ -4010,7 +4086,6 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ````
 
-
 ## `pytest.ini`
 
 ````ini
@@ -4019,100 +4094,442 @@ pythonpath = .
 testpaths = tests
 ````
 
-
 ## `README.md`
 
 ````markdown
-# DevNest 1.2.3
+<p align="center">
+  <img src="resources/devnest.svg" alt="DevNest" width="96" height="96">
+</p>
 
-DevNest is a native, offline-first desktop workspace for developers. It combines rich notes, click-to-complete checklists, lightweight task planning, TXT portability, Trash/restore, and per-note diagrams in one PySide6 application.
+<h1 align="center">DevNest</h1>
 
-## Technology
+<p align="center">
+  <strong>Notes, tasks and lightweight diagrams for developers.</strong><br>
+  Native desktop app for Windows · Offline-first · No account · No telemetry
+</p>
 
-- Python 3.12+
-- PySide6 / Qt 6
-- SQLite
-- QSettings
-- PyInstaller
-- No browser UI, web server, cloud account, telemetry, or runtime internet dependency
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-2f81f7?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
+  <img alt="Offline" src="https://img.shields.io/badge/offline-ready-555?style=flat-square">
+</p>
 
-## Main Features
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest">Latest Release</a>
+  &nbsp;·&nbsp;
+  <a href="#turkce">Türkçe</a>
+  &nbsp;·&nbsp;
+  <a href="#english">English</a>
+</p>
 
-- Notes sidebar with title, preview, last-edited time, search, and sorting
-- Rich text editor with bold, italic, underline, strikethrough, bullets, numbered lists, undo/redo, clipboard actions, and find
-- Clickable task lines using `☐` and `☑`
-- Checked task text is automatically struck through; unchecking removes the strike
-- Auto Checkbox mode with Enter continuation and empty-task exit behavior
-- Tab / Shift+Tab task indentation
-- TXT import for `[ ]`, `[x]`, `[X]`, `☐`, `☑`, and `✓`
-- TXT export using portable `[ ]` and `[x]` syntax
-- UTF-8 and UTF-8-SIG import support
-- Drag-and-drop TXT import
-- Debounced autosave
-- Trash, restore, permanent delete, empty Trash, and SQLite `VACUUM`
-- Font-family selector using fonts actually installed on the computer
-- 8–36 pt text-size slider and 100–900 font-weight slider for selected text/new typing
-- Per-note diagrams using QGraphicsScene/QGraphicsView
-- Drag-to-size Square/box, rounded box, ellipse and diamond tools; selected shapes expose eight resize handles for later adjustment
-- Hand-routed directional connectors with clear arrowheads, standalone text, duplicate, fit-to-view, zoom, selection, deletion, and middle-mouse pan
-- Legacy freehand and old rectangle diagram data remain backward-compatible even though freehand Draw is no longer a creation tool
-- Theme presets: Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, plus System mode
-- Window geometry, splitter position, active tab, theme, settings, and last note restored with QSettings
-- Rotating log files in the application data directory
+> **Windows users:** If you only want to use the application, you do not need to install the source code. Download `DevNest.exe` using the **Download DevNest.exe** button above and run it directly.
+>
+> **Windows kullanıcıları:** Sadece programı kullanmak istiyorsanız kaynak kodu kurmanıza gerek yok. Yukarıdaki **Download DevNest.exe** bağlantısından `DevNest.exe` dosyasını indirip doğrudan çalıştırabilirsiniz.
 
-## Project Structure
+---
+
+<a id="turkce"></a>
+
+# 🇹🇷 Türkçe
+
+## DevNest nedir?
+
+DevNest; notlarını, yapılacak işlerini, teknik fikirlerini ve küçük yazılım diyagramlarını tek yerde tutmak isteyen geliştiriciler için hazırlanmış native bir masaüstü uygulamasıdır.
+
+Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya göndermez. Veriler yerel SQLite veritabanında saklanır; arayüz PySide6 / Qt ile çalışır.
+
+### Öne çıkan özellikler
+
+| Alan | Özellikler |
+|---|---|
+| **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
+| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
+| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
+| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
+| **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
+| **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
+| **Veri güvenliği** | Autosave, Trash, Restore, kalıcı silme, SQLite `VACUUM` |
+| **Gizlilik** | Offline çalışma, login yok, telemetry yok, zorunlu cloud servisi yok |
+
+## Hızlı indirme
+
+Kaynak kodla uğraşmadan yalnızca uygulamayı kullanmak istiyorsanız hazır Windows executable dosyasını indirebilirsiniz:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ DevNest.exe indir</strong>
+  </a>
+</p>
+
+Bu bağlantı repository içindeki büyük binary dosya önizleme sayfasına değil, GitHub Releases üzerindeki en güncel `DevNest.exe` dosyasına gider.
+
+> PyInstaller build'i gerekli Python runtime ve Qt bileşenlerini paketler. Hedef Windows bilgisayarda ayrıca Python veya PySide6 kurulu olması gerekmez.
+
+## Checkbox kullanımı
+
+Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> kullanabilirsiniz.
 
 ```text
-devnest/
-├─ main.py
-├─ DevNest.spec
-├─ build.ps1
-├─ requirements.txt
-├─ pytest.ini
-├─ README.md
-├─ resources/
-│  ├─ devnest.svg
-│  └─ devnest.ico
-├─ app/
-│  ├─ __init__.py
-│  ├─ constants.py
-│  ├─ database.py
-│  ├─ main_window.py
-│  ├─ models.py
-│  ├─ paths.py
-│  ├─ settings.py
-│  ├─ dialogs/
-│  │  ├─ __init__.py
-│  │  ├─ preferences.py
-│  │  ├─ shortcuts.py
-│  │  └─ trash.py
-│  ├─ services/
-│  │  ├─ __init__.py
-│  │  ├─ logging_setup.py
-│  │  └─ txt_codec.py
-│  ├─ themes/
-│  │  ├─ __init__.py
-│  │  └─ theme_manager.py
-│  ├─ utils/
-│  │  └─ __init__.py
-│  └─ widgets/
-│     ├─ __init__.py
-│     ├─ diagram_view.py
-│     ├─ note_editor.py
-│     └─ sidebar.py
-└─ tests/
-   ├─ test_database.py
-   ├─ test_diagram.py
-   ├─ test_editor.py
-   ├─ test_settings.py
-   ├─ test_themes.py
-   ├─ test_txt_codec.py
-   └─ test_version.py
+☐ API endpointlerini hazırla
+☐ Database bağlantısını oluştur
+☑ Login ekranını tamamla
 ```
 
-## Windows Installation
+İşaretlenen görevlerin metni otomatik olarak üstü çizili hale gelir. İşaret kaldırıldığında strikethrough da kaldırılır.
 
-Install Python 3.12 or newer from python.org. During installation, enable the option that adds Python to PATH if you intend to use the `python` command directly.
+**Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
+
+## TXT içe / dışa aktarma
+
+DevNest aşağıdaki biçimlerin tamamını tanır:
+
+```text
+[ ] Backend
+[x] Database
+[X] Authentication
+☐ Frontend
+☑ Login
+✓ Deploy
+```
+
+Dışa aktarılan checklist'ler taşınabilir bir biçimde yazılır:
+
+```text
+[ ] Backend
+    [ ] API
+    [x] Database
+```
+
+TXT formatı bold / italic gibi rich-text özelliklerini taşımaz. Bu biçimler uygulamanın SQLite veritabanındaki native not içeriğinde korunur.
+
+## Diagram kullanımı
+
+Diagram alanı her not için ayrı saklanır.
+
+- **Square** — sol mouse tuşuna basılı tutup sürükleyerek istediğiniz genişlik ve yükseklikte kutu oluşturur.
+- **Round** — yuvarlatılmış dikdörtgen oluşturur.
+- **Ellipse** — elips / oval oluşturur.
+- **Diamond** — karar / akış diyagramı şekli oluşturur.
+- **Text** — bağımsız metin öğesi ekler.
+- **Connect** — bir nesnenin üzerinde başlayıp başka bir nesnenin üzerinde biten yönlü bağlantı çizer.
+- **Select** — nesneleri taşır; seçilen shape'in kenar ve köşe tutamaçlarıyla boyutunu değiştirir.
+- **Orta mouse tuşu + sürükleme** — aktif araçtan bağımsız olarak canvas üzerinde gezinir.
+- **Mouse wheel** — zoom yapar.
+
+Connector yalnızca geçerli bir nesneden başlayıp başka bir geçerli nesnede bitebilir. Boş canvas'a bırakılan bağlantı kaydedilmez. Ok başı bağlantının yönünü gösterir.
+
+## Temalar
+
+DevNest farklı çalışma ortamlarına uygun tema seçenekleri sunar.
+
+### Dark
+
+- Matte Black
+- Midnight Slate
+- Graphite
+
+### Light
+
+- Clean Light
+- Soft Gray
+- Warm Paper
+- Cool Mist
+
+### System
+
+İşletim sisteminin renk tercihine göre görünüm uygular.
+
+Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri yüklenir.
+
+## Klavye kısayolları
+
+| İşlem | Kısayol |
+|---|---|
+| Yeni not | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
+| Not içinde bul | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Geri al | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
+| Yinele | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
+| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
+| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
+| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
+| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
+| TXT export | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
+| Sidebar aç / kapat | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
+| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
+| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Diagram öğesini çoğalt | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Seçili diagram öğesini sil | <kbd>Delete</kbd> |
+
+## Kaynak koddan çalıştırma
+
+### Gereksinimler
+
+- Windows 10 / 11
+- Python 3.12+
+- PowerShell
+
+Repository'yi indirdikten sonra proje klasöründe PowerShell açın.
+
+```powershell
+python --version
+```
+
+Virtual environment oluşturun:
+
+```powershell
+python -m venv .venv
+```
+
+Aktifleştirin:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+PowerShell izin vermezse yalnızca mevcut terminal oturumu için:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Bağımlılıkları kurun:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Testleri çalıştırın:
+
+```powershell
+python -m pytest -q
+```
+
+Uygulamayı başlatın:
+
+```powershell
+python main.py
+```
+
+## Windows EXE oluşturma
+
+Projede hazır `build.ps1` ve `DevNest.spec` bulunur.
+
+### Klasörlü build
+
+Geliştirme ve ilk dağıtım testi için:
+
+```powershell
+.\build.ps1
+```
+
+Çıktı:
+
+```text
+dist\DevNest\DevNest.exe
+```
+
+Bu build tipinde `dist\DevNest` klasörünün tamamını dağıtmanız gerekir.
+
+### Tek dosya EXE
+
+Tek `DevNest.exe` üretmek için:
+
+```powershell
+.\build.ps1 -OneFile
+```
+
+Çıktı:
+
+```text
+dist\DevNest.exe
+```
+
+GitHub Releases'a yüklenecek dosya bu tek dosyalık build olabilir.
+
+## GitHub Release yayınlama
+
+Yeni bir sürüm yayınlarken:
+
+1. GitHub repository sayfasında **Releases** bölümünü açın.
+2. **Draft a new release** seçin.
+3. Örneğin `v1.2.4` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 1.2.4` yapın.
+5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
+6. Release'i yayınlayın.
+
+README'deki indirme bağlantısı:
+
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
+```
+
+olduğu için sonraki sürümlerde README bağlantısını değiştirmeniz gerekmez. Release asset adı `DevNest.exe` olarak kaldığı sürece buton en güncel release dosyasını indirir.
+
+## Veriler nerede saklanıyor?
+
+DevNest kullanıcı verisini executable'ın yanına yazmak zorunda değildir. SQLite veritabanı Qt'nin application-data konumunda tutulur.
+
+Kesin veritabanı yolunu **Help → About DevNest** ekranında görebilirsiniz.
+
+Loglar aynı application-data alanındaki `logs` klasöründe tutulur.
+
+### Yedekleme
+
+Yedek almadan önce DevNest'i kapatın ve `devnest.db` dosyasını güvenli bir konuma kopyalayın.
+
+### Windows SmartScreen
+
+İmzalanmamış yeni executable dosyalarında Windows SmartScreen uyarısı görülebilir. Uygulamayı geniş çapta dağıtacaksanız `DevNest.exe` dosyasını bir code-signing sertifikasıyla imzalamak daha profesyonel bir dağıtım sağlar.
+
+---
+
+<a id="english"></a>
+
+# 🇬🇧 English
+
+## What is DevNest?
+
+DevNest is a native desktop workspace for developers who want notes, checklists, technical ideas and lightweight software diagrams in one place.
+
+It does not require a browser, an account or a network connection. Notes stay on your machine in a local SQLite database, while the interface is built with PySide6 / Qt.
+
+### Highlights
+
+| Area | Features |
+|---|---|
+| **Notes** | Fast note creation, search, rename, duplicate and sorting |
+| **Editor** | Bold, italic, underline, strikethrough, lists, font / size / weight controls; checkbox and list markers follow font formatting |
+| **Tasks** | Clickable `☐ / ☑` items, automatic strikethrough, Auto Checkbox and nested tasks |
+| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` detection with UTF-8 import/export |
+| **Diagrams** | Drag-to-size shapes, text, directional connectors, zoom, pan and resize |
+| **Themes** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist and System |
+| **Data safety** | Autosave, Trash, Restore, permanent delete and SQLite `VACUUM` |
+| **Privacy** | Offline operation, no login, no telemetry and no mandatory cloud service |
+
+## Quick download
+
+If you only want to use DevNest and do not need the source code, download the ready-to-run Windows executable:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+</p>
+
+This link goes directly to the latest `DevNest.exe` asset published under GitHub Releases instead of opening GitHub's large binary file preview page.
+
+> The PyInstaller build bundles the required Python runtime and Qt components. Python and PySide6 do not need to be installed separately on the target Windows machine.
+
+## Checklists
+
+Use the checkbox toolbar action or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to turn a line into a task.
+
+```text
+☐ Prepare API endpoints
+☐ Create database connection
+☑ Finish login screen
+```
+
+Completed tasks are struck through automatically. Unchecking a task removes the strikethrough.
+
+With **Auto Checkbox** enabled, pressing <kbd>Enter</kbd> after a non-empty task creates another task with the same indentation. Pressing <kbd>Enter</kbd> on an empty task exits checklist mode. Use <kbd>Tab</kbd> and <kbd>Shift</kbd> + <kbd>Tab</kbd> for nesting.
+
+## TXT import / export
+
+DevNest recognizes all of the following forms:
+
+```text
+[ ] Backend
+[x] Database
+[X] Authentication
+☐ Frontend
+☑ Login
+✓ Deploy
+```
+
+Portable TXT export uses:
+
+```text
+[ ] Backend
+    [ ] API
+    [x] Database
+```
+
+TXT cannot retain rich formatting such as bold or italic. DevNest keeps the native rich-text version in SQLite so formatting remains intact inside the application.
+
+## Diagrams
+
+Each note has its own diagram workspace.
+
+- **Square** — press and drag to create a box at the exact width and height you want.
+- **Round** — create a rounded rectangle.
+- **Ellipse** — create an ellipse / oval.
+- **Diamond** — create a decision / flowchart shape.
+- **Text** — add a standalone text element.
+- **Connect** — draw a directional connection from one existing object to another.
+- **Select** — move objects and resize selected shapes using edge and corner handles.
+- **Middle mouse button + drag** — pan the canvas regardless of the active tool.
+- **Mouse wheel** — zoom.
+
+A connector must start on a valid object and end on a different valid object. Connections released onto empty canvas are discarded. The arrowhead marks the target direction.
+
+## Themes
+
+DevNest includes several appearance presets for different environments.
+
+### Dark
+
+- Matte Black
+- Midnight Slate
+- Graphite
+
+### Light
+
+- Clean Light
+- Soft Gray
+- Warm Paper
+- Cool Mist
+
+### System
+
+Follows the operating system color preference.
+
+The selected theme is stored with QSettings and restored on the next launch.
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+|---|---|
+| New note | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
+| Find in note | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Undo | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
+| Redo | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
+| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
+| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
+| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
+| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
+| Export TXT | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
+| Toggle sidebar | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
+| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
+| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Duplicate diagram item | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Delete selected diagram item | <kbd>Delete</kbd> |
+
+## Run from source
+
+### Requirements
+
+- Windows 10 / 11
+- Python 3.12+
+- PowerShell
 
 Open PowerShell in the project directory and verify Python:
 
@@ -4132,358 +4549,121 @@ Activate it:
 .\.venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks activation for the current session:
+If PowerShell blocks script activation for the current session:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\.venv\Scripts\Activate.ps1
-```
-
-Upgrade pip:
-
-```powershell
-python -m pip install --upgrade pip
 ```
 
 Install dependencies:
 
 ```powershell
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Run the application:
-
-```powershell
-python main.py
-```
-
-Run tests:
+Run the test suite:
 
 ```powershell
 python -m pytest -q
 ```
 
-## Keyboard Shortcuts
+Start DevNest:
 
-| Action | Shortcut |
-|---|---|
-| New Note | Ctrl+N |
-| Find in Note | Ctrl+F |
-| Undo | Ctrl+Z |
-| Redo | Ctrl+Y |
-| Bold | Ctrl+B |
-| Italic | Ctrl+I |
-| Underline | Ctrl+U |
-| Checkbox | Ctrl+Shift+X |
-| Export TXT | Ctrl+E |
-| Toggle Sidebar | Ctrl+Shift+B |
-| Editor Tab | Ctrl+1 |
-| Diagram Tab | Ctrl+2 |
-| Duplicate selected diagram item | Ctrl+D |
-| Delete selected diagram item | Delete |
-
-## Checkbox Behavior
-
-Click the checkbox glyph in the editor or use `Ctrl+Shift+X` on a line.
-
-```text
-☐ API'yi hazırla
+```powershell
+python main.py
 ```
 
-After checking:
+## Build a Windows executable
 
-```text
-☑ API'yi hazırla
-```
+The repository includes `build.ps1` and `DevNest.spec`.
 
-The task text receives strikethrough formatting immediately. Unchecking removes it.
+### Folder build
 
-With Auto Checkbox enabled, pressing Enter after a non-empty task creates another unchecked task with the same indentation. Pressing Enter on an empty task removes the task marker and returns to a normal line. Tab adds task indentation; Shift+Tab removes it.
-
-## TXT Import
-
-Use **File > Import TXT**, the toolbar Import button, or drag a `.txt` file onto the main window.
-
-Recognized task markers:
-
-```text
-[ ] Task
-[x] Task
-[X] Task
-☐ Task
-☑ Task
-✓ Task
-```
-
-Checked tasks are imported as `☑` with strikethrough. Leading indentation is retained as spaces so nested checklists remain usable.
-
-## TXT Export
-
-Use **File > Export TXT** or `Ctrl+E`.
-
-DevNest exports internal checkboxes as:
-
-```text
-[ ] Unchecked task
-[x] Checked task
-    [ ] Nested task
-```
-
-TXT cannot preserve rich text such as bold or italic. DevNest's SQLite storage keeps the native QTextDocument HTML separately, so rich formatting remains available inside the application.
-
-## Text Font Controls
-
-The old `Body / H1 / H2 / H3` toolbar selector has been replaced with direct typography controls:
-
-- **Font selector:** shows several developer-friendly/system fonts only when they are actually installed. It always includes the current system monospace and UI fonts. Common Windows choices such as Cascadia Code, Cascadia Mono, Consolas, Courier New and Segoe UI appear when available.
-- **Size slider:** 8–36 pt.
-- **Weight slider:** OpenType/Qt weights from 100 (thin) through 900 (black).
-
-Select text and change a control to format that selection. With no selection, the chosen format becomes the typing format for text entered next. The resulting rich-text formatting is stored in the note HTML in SQLite.
-
-## Diagrams
-
-Each note owns a separate diagram. Open the **Diagram** workspace button/tab or press `Ctrl+2`. The diagram canvas follows the selected application theme and uses a subtle grid.
-
-Tools:
-
-- **Select:** select and move diagram items. A selected built-in shape shows **8 resize handles** (corners + edges); drag a handle to resize it after creation.
-- **Pan:** drag the canvas. In every tool, you can also hold the **middle mouse button / scroll wheel** and drag to pan without changing tools.
-- **Square:** press the left mouse button and drag the exact bounds you want. A square drag produces a square; stretching wider/taller produces a rectangular box. A simple click does **not** create a fixed-size object.
-- **Round:** press and drag to create a rounded rectangle at your chosen width and height.
-- **Ellipse:** press and drag to create an ellipse at your chosen width and height.
-- **Diamond:** press and drag to create a decision diamond at your chosen width and height.
-- **Text:** add standalone text.
-- **Connect:** begin on one existing diagram object, keep the left mouse button held, route the connection however you want, and release on a different object. The filled arrowhead marks the target direction. Starts/ends in empty canvas are rejected.
-- **Duplicate:** duplicate selected diagram content (`Ctrl+D`).
-- **Fit:** fit all diagram objects in the viewport.
-- **+/−:** zoom. The mouse wheel also zooms.
-- **Delete:** delete the current selection.
-
-Shape creation deliberately uses a **preview-first** model. Pressing the mouse only starts a temporary dashed preview; the real connectable shape is created after you drag and release. This means a half-created shape never becomes a connector endpoint and no temporary center/anchor marker is introduced while sizing it.
-
-All new built-in shape dimensions are stored in the diagram JSON (`width`/`height`), so sizes survive autosave/restart. Existing diagrams from older DevNest versions still load: old rectangle/square nodes keep their fallback sizes and old freehand paths remain visible/connectable, but the old freehand **Draw** creation tool is no longer shown.
-
-Connections remain anchored to the boundary of resized shapes. Resizing or moving a shape updates attached connector endpoints, while the hand-routed middle section of the connector remains preserved.
-
-
-## Trash and Database Optimization
-
-Normal Delete moves a note to Trash by setting `is_deleted = 1`. It does not immediately remove the SQLite row.
-
-Open **File > Trash** to:
-
-- Restore a note
-- Permanently delete a selected note
-- Empty Trash
-- Optimize Database
-
-Permanent deletion removes the note row. Linked diagram data is deleted by SQLite foreign-key cascade. SQLite may keep the database file size unchanged after deletion because freed pages are reused later. **Optimize Database** executes `VACUUM` to rebuild the database and return unused space to the filesystem where possible.
-
-## Settings
-
-Open **File > Preferences**.
-
-General:
-
-- Autosave enabled/disabled
-- Autosave delay
-- Start with last opened note
-
-Editor:
-
-- Font size
-- Tab width
-- Auto Checkbox default
-- Word wrap
-
-Appearance:
-
-- System
-- Matte Black
-- Midnight Slate
-- Graphite
-- Clean Light
-- Soft Gray
-- Warm Paper
-- Cool Mist
-
-The **Editor / Diagram / Theme** workspace strip is always visible below the toolbars. It is part of the main layout rather than a toolbar overflow menu, so those controls are not hidden behind Qt's three-dot extension button.
-
-QSettings stores these preferences outside the executable.
-
-## Data Location
-
-The database is stored using Qt's `QStandardPaths.AppDataLocation`, not beside the executable. On Windows this resolves under the current user's application-data area. The exact active database path is displayed in **Help > About DevNest**.
-
-The database filename is:
-
-```text
-devnest.db
-```
-
-Logs are stored under the same application-data directory in:
-
-```text
-logs\devnest.log
-```
-
-## Backup
-
-For a reliable backup:
-
-1. Close DevNest so pending autosaves are flushed and SQLite is cleanly closed.
-2. Open **Help > About DevNest** and note the database path.
-3. Copy `devnest.db` to a backup location.
-
-If you back up while the application is running, SQLite WAL files can be relevant. Closing first is the simplest safe approach.
-
-## Building a Windows EXE with PyInstaller
-
-The checked-in `DevNest.spec` supports both **onedir** and **onefile** builds. For maximum reliability with Qt, start with onedir; for easiest sharing, the same spec can also produce one standalone EXE. Build on a 64-bit Windows machine with 64-bit Python when targeting normal Windows 10/11 PCs.
-
-With the virtual environment active:
+Recommended for development and initial distribution testing:
 
 ```powershell
 .\build.ps1
 ```
 
-The script:
-
-- checks for Python 3.12+ and reports the Python architecture
-- installs/updates dependencies unless `-SkipInstall` is supplied
-- verifies PySide6 and PyInstaller imports
-- runs the full test suite in Qt offscreen mode and stops if tests fail
-- removes old `build` and `dist` folders
-- runs PyInstaller with `DevNest.spec`
-- verifies the expected EXE exists
-
-To skip dependency installation after the environment is already prepared:
-
-```powershell
-.\build.ps1 -SkipInstall
-```
-
-The resulting executable is:
+Output:
 
 ```text
 dist\DevNest\DevNest.exe
 ```
 
-For the onedir build, distribute the **entire** `dist\DevNest` folder, not only the EXE.
+Distribute the complete `dist\DevNest` directory when using this mode.
 
-### What `--windowed` means
+### Single-file EXE
 
-`--windowed` (or `console=False` in the spec) prevents a separate console window from opening for the GUI application on Windows.
-
-### `--onedir` versus `--onefile`
-
-`--onedir` creates one folder containing the EXE and required Qt/Python files. It normally starts faster and is easier to inspect and troubleshoot.
-
-`--onefile` creates one distributable EXE. At launch, PyInstaller extracts bundled files to a temporary location, so startup can be slower and antivirus products may inspect it more aggressively.
-
-For DevNest, **onedir is the safest package to test first**. Distribute the whole `dist\DevNest` directory, usually as a ZIP. Target computers do not need Python installed.
-
-### Onefile build
-
-To produce one standalone EXE using the same checked-in spec:
+To create one standalone executable:
 
 ```powershell
 .\build.ps1 -OneFile
 ```
 
-If dependencies are already installed:
-
-```powershell
-.\build.ps1 -OneFile -SkipInstall
-```
-
-The onefile output is:
+Output:
 
 ```text
 dist\DevNest.exe
 ```
 
-Onefile is easier to send to someone, but it extracts its bundled runtime to a temporary directory at startup and therefore commonly starts slower than onedir.
+This single-file build can be uploaded as the GitHub Release asset.
 
-### `build` and `dist`
+## Publishing a GitHub Release
 
-- `build\` contains PyInstaller's temporary analysis and intermediate files.
-- `dist\` contains the distributable application.
+When publishing a new version:
 
-The `build\` directory is not needed by end users.
+1. Open **Releases** in the GitHub repository.
+2. Select **Draft a new release**.
+3. Create a tag such as `v1.2.4`.
+4. Use a release title such as `DevNest 1.2.4`.
+5. Upload `dist\DevNest.exe` as a release asset.
+6. Publish the release.
 
-### Running on a PC without Python
+The README download button points to:
 
-Yes. A correctly built PyInstaller bundle contains the Python interpreter and the Python/Qt modules needed by DevNest. The target computer does not need a separate Python installation.
-
-Build the Windows application on Windows. PyInstaller is not a cross-compiler for producing a normal Windows EXE from Linux or macOS.
-
-### SmartScreen warnings
-
-A newly built unsigned EXE may show Microsoft Defender SmartScreen warnings because it has little or no reputation and no trusted publisher signature. This does not automatically mean the application is malicious.
-
-For public distribution, obtain a code-signing certificate and sign the executable. Code signing identifies the publisher and helps Windows establish trust/reputation. EV or organization-validated signing options have different cost and reputation characteristics.
-
-### Confirming AppData storage
-
-Run the built EXE, open **Help > About DevNest**, and inspect the displayed database path. It should point to the user's application-data area rather than `dist\DevNest`. Create a note, close the application, reopen it, and verify that the note remains available.
-
-## Troubleshooting
-
-### PowerShell will not activate the virtual environment
-
-Use a process-local policy change:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\.venv\Scripts\Activate.ps1
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
 ```
 
-### `python` is not recognized
+As long as the release asset remains named `DevNest.exe`, the README button automatically downloads the executable from the latest published release. You do not need to update the README link for every version.
 
-Reinstall Python with PATH enabled, or use the Windows Python launcher if available:
+## Where is the data stored?
 
-```powershell
-py -3.12 --version
+DevNest does not require user data to be stored next to the executable. The SQLite database is stored under Qt's application-data location for the current Windows user.
+
+The exact database path is shown under **Help → About DevNest**.
+
+Log files are stored in the `logs` directory inside the same application-data area.
+
+### Backup
+
+Close DevNest before creating a backup, then copy `devnest.db` to a safe location.
+
+### Windows SmartScreen
+
+Windows SmartScreen may warn about a newly distributed unsigned executable. If DevNest is distributed publicly, signing `DevNest.exe` with a code-signing certificate provides a more professional Windows distribution experience.
+
+---
+
+## Technology
+
+```text
+Python 3.12+
+PySide6 / Qt 6
+SQLite
+QSettings
+PyInstaller
 ```
 
-Then create the environment with:
+DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
 
-```powershell
-py -3.12 -m venv .venv
-```
-
-### PySide6 import error
-
-Confirm the virtual environment is active, then reinstall requirements:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-### Build fails after dependency changes
-
-Clean and rebuild:
-
-```powershell
-Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
-python -m PyInstaller --noconfirm --clean DevNest.spec
-```
-
-### TXT import fails
-
-DevNest expects UTF-8 or UTF-8-SIG. Convert older ANSI/Windows-codepage files to UTF-8 in a text editor before importing.
-
-### Database problem
-
-Check `logs\devnest.log` under the DevNest application-data directory. Before manually changing database files, close DevNest and make a backup copy.
-
-## Version
-
-The application version is defined once in `app/constants.py` as `VERSION = "1.2.3"`. The window metadata and About dialog read from this value.
+<p align="center">
+  <sub>DevNest 1.2.4 · Native desktop workspace for everyday development notes and planning.</sub>
+</p>
 ````
-
 
 ## `requirements.txt`
 
@@ -4492,7 +4672,6 @@ PySide6==6.11.2
 PyInstaller==6.22.2
 pytest>=8.3,<10
 ````
-
 
 ## `resources/devnest.svg`
 
@@ -4503,7 +4682,6 @@ pytest>=8.3,<10
   <path d="M174 112l18 18-18 18" fill="none" stroke="#7AA2F7" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
 ````
-
 
 ## `tests/test_database.py`
 
@@ -4583,7 +4761,6 @@ def test_empty_trash_returns_deleted_count(tmp_path: Path) -> None:
     finally:
         db.close()
 ````
-
 
 ## `tests/test_diagram.py`
 
@@ -4748,7 +4925,6 @@ def test_resize_from_handle_changes_shape_bounds(app: QApplication) -> None:
     assert shape.height == pytest.approx(150.0)
 ````
 
-
 ## `tests/test_editor.py`
 
 ````python
@@ -4855,8 +5031,83 @@ def test_font_controls_apply_rich_text_formatting(app: QApplication) -> None:
     assert round(fmt.fontPointSize()) == 18
     assert int(fmt.fontWeight()) == int(QFont.Weight.ExtraBold)
     assert family in fmt.font().families() or fmt.font().family() == family
-````
 
+
+
+def _character_format(editor: NoteEditor, position: int):
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(position)
+    cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+    return cursor.charFormat()
+
+
+def test_font_controls_apply_to_checkbox_marker_and_whole_task_line(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("☐ API endpoint")
+    cursor = editor.textCursor()
+    cursor.setPosition(len("☐ API"))
+    editor.setTextCursor(cursor)
+
+    editor.apply_font_point_size(20)
+    editor.apply_font_weight(700)
+
+    block = editor.document().firstBlock()
+    marker_fmt = _character_format(editor, block.position())
+    text_fmt = _character_format(editor, block.position() + 2)
+    assert round(marker_fmt.fontPointSize()) == 20
+    assert round(text_fmt.fontPointSize()) == 20
+    assert int(marker_fmt.fontWeight()) == 700
+    assert int(text_fmt.fontWeight()) == 700
+
+
+def test_font_controls_apply_to_bullet_list_marker_block_format(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("Bullet item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    editor.setTextCursor(cursor)
+    editor.make_bullet_list()
+    editor.apply_font_point_size(19)
+    editor.apply_font_weight(700)
+
+    block = editor.document().firstBlock()
+    assert block.textList() is not None
+    assert round(block.charFormat().fontPointSize()) == 19
+    assert int(block.charFormat().fontWeight()) == 700
+    text_fmt = _character_format(editor, block.position())
+    assert round(text_fmt.fontPointSize()) == 19
+    assert int(text_fmt.fontWeight()) == 700
+
+
+def test_blank_line_after_enter_setting(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("First line")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "First line\n\n"
+
+
+def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(True)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("☐ Backend")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "☐ Backend\n\n☐ "
+````
 
 ## `tests/test_settings.py`
 
@@ -4884,6 +5135,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         editor_font_size=14,
         tab_width=2,
         auto_checkbox_default=False,
+        blank_line_after_enter=True,
         word_wrap=False,
     )
     manager.save_preferences(expected)
@@ -4901,7 +5153,6 @@ def test_last_note_id_and_boolean_string_parsing(tmp_path: Path) -> None:
     manager.set_last_note_id(None)
     assert manager.last_note_id() is None
 ````
-
 
 ## `tests/test_themes.py`
 
@@ -4922,7 +5173,6 @@ def test_theme_presets_include_multiple_dark_and_light_modes() -> None:
     assert sum(1 for spec in THEME_SPECS.values() if spec.dark) >= 3
     assert sum(1 for spec in THEME_SPECS.values() if not spec.dark) >= 4
 ````
-
 
 ## `tests/test_txt_codec.py`
 
@@ -4996,7 +5246,6 @@ def test_txt_round_trip_preserves_task_states_and_indentation() -> None:
     assert reparsed[3].indent == "    "
 ````
 
-
 ## `tests/test_version.py`
 
 ````python
@@ -5004,5 +5253,6 @@ from app.constants import VERSION
 
 
 def test_version_is_single_source() -> None:
-    assert VERSION == "1.2.3"
+    assert VERSION == "1.2.4"
 ````
+

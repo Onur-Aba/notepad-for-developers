@@ -21,6 +21,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         editor_font_size=14,
         tab_width=2,
         auto_checkbox_default=False,
+        blank_line_after_enter=True,
         word_wrap=False,
     )
     manager.save_preferences(expected)

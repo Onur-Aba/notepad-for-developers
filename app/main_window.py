@@ -186,6 +186,10 @@ class MainWindow(QMainWindow):
         self.auto_checkbox_action = QAction("Auto Checkbox", self)
         self.auto_checkbox_action.setCheckable(True)
         self.auto_checkbox_action.toggled.connect(self._set_auto_checkbox)
+        self.blank_line_enter_action = QAction("Blank Line After Enter", self)
+        self.blank_line_enter_action.setCheckable(True)
+        self.blank_line_enter_action.setToolTip("Leave one empty line whenever Enter is pressed")
+        self.blank_line_enter_action.toggled.connect(self._set_blank_line_after_enter)
 
         self.bold_action = QAction("Bold", self)
         self.bold_action.setShortcut(QKeySequence.StandardKey.Bold)
@@ -428,6 +432,7 @@ class MainWindow(QMainWindow):
         for action in [
             self.checkbox_action,
             self.auto_checkbox_action,
+            self.blank_line_enter_action,
             self.bold_action,
             self.italic_action,
             self.underline_action,
@@ -756,12 +761,21 @@ class MainWindow(QMainWindow):
         self.auto_checkbox_action.setChecked(auto_enabled)
         self.auto_checkbox_action.blockSignals(False)
         self.editor.set_auto_checkbox(auto_enabled)
+        self.blank_line_enter_action.blockSignals(True)
+        self.blank_line_enter_action.setChecked(prefs.blank_line_after_enter)
+        self.blank_line_enter_action.blockSignals(False)
+        self.editor.set_blank_line_after_enter(prefs.blank_line_after_enter)
         self.set_theme(prefs.theme, persist=persist)
 
     def _set_auto_checkbox(self, enabled: bool) -> None:
         self.editor.set_auto_checkbox(enabled)
         self.preferences.auto_checkbox_default = enabled
         self.settings.set_value("editor/auto_checkbox_default", enabled)
+
+    def _set_blank_line_after_enter(self, enabled: bool) -> None:
+        self.editor.set_blank_line_after_enter(enabled)
+        self.preferences.blank_line_after_enter = enabled
+        self.settings.set_value("editor/blank_line_after_enter", enabled)
 
     def set_theme(self, theme: str, persist: bool = True) -> None:
         self.theme_manager.apply(theme)

@@ -101,3 +101,79 @@ def test_font_controls_apply_rich_text_formatting(app: QApplication) -> None:
     assert round(fmt.fontPointSize()) == 18
     assert int(fmt.fontWeight()) == int(QFont.Weight.ExtraBold)
     assert family in fmt.font().families() or fmt.font().family() == family
+
+
+
+def _character_format(editor: NoteEditor, position: int):
+    cursor = QTextCursor(editor.document())
+    cursor.setPosition(position)
+    cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, 1)
+    return cursor.charFormat()
+
+
+def test_font_controls_apply_to_checkbox_marker_and_whole_task_line(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("☐ API endpoint")
+    cursor = editor.textCursor()
+    cursor.setPosition(len("☐ API"))
+    editor.setTextCursor(cursor)
+
+    editor.apply_font_point_size(20)
+    editor.apply_font_weight(700)
+
+    block = editor.document().firstBlock()
+    marker_fmt = _character_format(editor, block.position())
+    text_fmt = _character_format(editor, block.position() + 2)
+    assert round(marker_fmt.fontPointSize()) == 20
+    assert round(text_fmt.fontPointSize()) == 20
+    assert int(marker_fmt.fontWeight()) == 700
+    assert int(text_fmt.fontWeight()) == 700
+
+
+def test_font_controls_apply_to_bullet_list_marker_block_format(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("Bullet item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    editor.setTextCursor(cursor)
+    editor.make_bullet_list()
+    editor.apply_font_point_size(19)
+    editor.apply_font_weight(700)
+
+    block = editor.document().firstBlock()
+    assert block.textList() is not None
+    assert round(block.charFormat().fontPointSize()) == 19
+    assert int(block.charFormat().fontWeight()) == 700
+    text_fmt = _character_format(editor, block.position())
+    assert round(text_fmt.fontPointSize()) == 19
+    assert int(text_fmt.fontWeight()) == 700
+
+
+def test_blank_line_after_enter_setting(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("First line")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "First line\n\n"
+
+
+def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(True)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("☐ Backend")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "☐ Backend\n\n☐ "
