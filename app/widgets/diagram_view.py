@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygon
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPathItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSceneMouseEvent,
     QGraphicsTextItem,
@@ -22,8 +23,8 @@ from PySide6.QtWidgets import (
 )
 
 
-# Square/rectangle remain supported internally so diagrams created with DevNest 1.1
-# keep loading, but they are intentionally not offered as creation tools anymore.
+# Shape defaults are used for legacy data and programmatic creation. New shapes are
+# created by click-dragging their desired bounds, so these values are only fallbacks.
 SHAPE_SIZES: dict[str, tuple[float, float]] = {
     "square": (92.0, 92.0),
     "rect": (160.0, 82.0),
@@ -40,6 +41,12 @@ SHAPE_LABELS: dict[str, str] = {
     "diamond": "Diamond",
 }
 
+MIN_SHAPE_WIDTH = 36.0
+MIN_SHAPE_HEIGHT = 28.0
+HANDLE_SIZE = 10.0
+MIN_CREATE_DRAG = 6.0
+
+
 DEFAULT_DIAGRAM_PALETTE: dict[str, str] = {
     "background": "#f7f8fa",
     "grid_minor": "#edf0f3",
@@ -53,6 +60,30 @@ DEFAULT_DIAGRAM_PALETTE: dict[str, str] = {
 
 def _pen(color: str, width: float = 2.0) -> QPen:
     return QPen(QColor(color), width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+
+
+def _make_shape_path(shape_type: str, width: float, height: float) -> QPainterPath:
+    rect = QRectF(0.0, 0.0, max(1.0, width), max(1.0, height))
+    path = QPainterPath()
+    if shape_type == "ellipse":
+        path.addEllipse(rect)
+    elif shape_type == "diamond":
+        polygon = QPolygonF(
+            [
+                QPointF(width / 2.0, 0.0),
+                QPointF(width, height / 2.0),
+                QPointF(width / 2.0, height),
+                QPointF(0.0, height / 2.0),
+            ]
+        )
+        path.addPolygon(polygon)
+        path.closeSubpath()
+    elif shape_type == "rounded":
+        radius = min(18.0, max(6.0, min(width, height) * 0.18))
+        path.addRoundedRect(rect, radius, radius)
+    else:
+        path.addRect(rect)
+    return path
 
 
 def _path_points(path: QPainterPath) -> list[list[float]]:
@@ -85,6 +116,48 @@ def _path_from_points(points: object) -> QPainterPath | None:
         return None
 
 
+class DiagramResizeHandle(QGraphicsRectItem):
+    """Small drag handle used to resize a DiagramShape after creation."""
+
+    _CURSORS = {
+        "nw": Qt.CursorShape.SizeFDiagCursor,
+        "se": Qt.CursorShape.SizeFDiagCursor,
+        "ne": Qt.CursorShape.SizeBDiagCursor,
+        "sw": Qt.CursorShape.SizeBDiagCursor,
+        "n": Qt.CursorShape.SizeVerCursor,
+        "s": Qt.CursorShape.SizeVerCursor,
+        "e": Qt.CursorShape.SizeHorCursor,
+        "w": Qt.CursorShape.SizeHorCursor,
+    }
+
+    def __init__(self, owner: "DiagramShape", role: str) -> None:
+        half = HANDLE_SIZE / 2.0
+        super().__init__(-half, -half, HANDLE_SIZE, HANDLE_SIZE, owner)
+        self.owner = owner
+        self.role = role
+        self.setZValue(30.0)
+        self.setCursor(self._CURSORS[role])
+        self.setBrush(QBrush(QColor("#ffffff")))
+        self.setPen(_pen("#4f8cff", 1.4))
+        self.setVisible(False)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    def set_theme(self, palette: dict[str, str]) -> None:
+        self.setBrush(QBrush(QColor(palette["fill"])))
+        self.setPen(_pen(palette["connector"], 1.4))
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        event.accept()
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        self.owner.resize_from_handle(self.role, event.scenePos())
+        event.accept()
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        self.owner.finish_resize()
+        event.accept()
+
+
 class DiagramShape(QGraphicsPathItem):
     def __init__(
         self,
@@ -92,16 +165,20 @@ class DiagramShape(QGraphicsPathItem):
         shape_type: str,
         text: str,
         on_changed: Callable[[], None],
+        width: float | None = None,
+        height: float | None = None,
     ) -> None:
         super().__init__()
         self.item_id = item_id
         self.shape_type = shape_type if shape_type in SHAPE_SIZES else "rect"
         self._on_changed = on_changed
-        self._width, self._height = SHAPE_SIZES[self.shape_type]
-        self.setPath(self._make_path())
+        default_width, default_height = SHAPE_SIZES[self.shape_type]
+        self._width = max(MIN_SHAPE_WIDTH, float(width if width is not None else default_width))
+        self._height = max(MIN_SHAPE_HEIGHT, float(height if height is not None else default_height))
+        self.setPath(_make_shape_path(self.shape_type, self._width, self._height))
         self.label = QGraphicsTextItem(text, self)
         self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.label.setTextWidth(max(52.0, self._width - 20.0))
+        self.label.setTextWidth(max(28.0, self._width - 20.0))
         self._position_label()
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -110,32 +187,68 @@ class DiagramShape(QGraphicsPathItem):
         )
         self.setPen(_pen("#747b88", 1.6))
         self.setBrush(QBrush(QColor("#ffffff")))
+        self._handles = {role: DiagramResizeHandle(self, role) for role in ("nw", "n", "ne", "e", "se", "s", "sw", "w")}
+        self._position_handles()
 
-    def _make_path(self) -> QPainterPath:
-        rect = QRectF(0.0, 0.0, self._width, self._height)
-        path = QPainterPath()
-        if self.shape_type == "ellipse":
-            path.addEllipse(rect)
-        elif self.shape_type == "diamond":
-            polygon = QPolygonF(
-                [
-                    QPointF(self._width / 2.0, 0.0),
-                    QPointF(self._width, self._height / 2.0),
-                    QPointF(self._width / 2.0, self._height),
-                    QPointF(0.0, self._height / 2.0),
-                ]
-            )
-            path.addPolygon(polygon)
-            path.closeSubpath()
-        elif self.shape_type == "rounded":
-            path.addRoundedRect(rect, 14.0, 14.0)
-        else:
-            path.addRect(rect)
-        return path
+    @property
+    def width(self) -> float:
+        return self._width
+
+    @property
+    def height(self) -> float:
+        return self._height
 
     def _position_label(self) -> None:
+        self.label.setTextWidth(max(28.0, self._width - 20.0))
         label_height = self.label.boundingRect().height()
-        self.label.setPos(10.0, max(6.0, (self._height - label_height) / 2.0))
+        self.label.setPos(10.0, max(4.0, (self._height - label_height) / 2.0))
+
+    def _position_handles(self) -> None:
+        x_mid = self._width / 2.0
+        y_mid = self._height / 2.0
+        positions = {
+            "nw": QPointF(0.0, 0.0),
+            "n": QPointF(x_mid, 0.0),
+            "ne": QPointF(self._width, 0.0),
+            "e": QPointF(self._width, y_mid),
+            "se": QPointF(self._width, self._height),
+            "s": QPointF(x_mid, self._height),
+            "sw": QPointF(0.0, self._height),
+            "w": QPointF(0.0, y_mid),
+        }
+        for role, handle in self._handles.items():
+            handle.setPos(positions[role])
+
+    def set_size(self, width: float, height: float, *, notify: bool = True) -> None:
+        self._width = max(MIN_SHAPE_WIDTH, float(width))
+        self._height = max(MIN_SHAPE_HEIGHT, float(height))
+        self.setPath(_make_shape_path(self.shape_type, self._width, self._height))
+        self._position_label()
+        self._position_handles()
+        if notify:
+            self._on_changed()
+
+    def resize_from_handle(self, role: str, scene_pos: QPointF) -> None:
+        left = self.x()
+        top = self.y()
+        right = left + self._width
+        bottom = top + self._height
+
+        if "w" in role:
+            left = min(scene_pos.x(), right - MIN_SHAPE_WIDTH)
+        if "e" in role:
+            right = max(scene_pos.x(), left + MIN_SHAPE_WIDTH)
+        if "n" in role:
+            top = min(scene_pos.y(), bottom - MIN_SHAPE_HEIGHT)
+        if "s" in role:
+            bottom = max(scene_pos.y(), top + MIN_SHAPE_HEIGHT)
+
+        self.setPos(left, top)
+        self.set_size(right - left, bottom - top, notify=False)
+        self._on_changed()
+
+    def finish_resize(self) -> None:
+        self._on_changed()
 
     @property
     def text(self) -> str:
@@ -145,11 +258,17 @@ class DiagramShape(QGraphicsPathItem):
         self.setBrush(QBrush(QColor(palette["fill"])))
         self.setPen(_pen(palette["stroke"], 1.6))
         self.label.setDefaultTextColor(QColor(palette["text"]))
+        for handle in self._handles.values():
+            handle.set_theme(palette)
 
     def itemChange(self, change, value):
         result = super().itemChange(change, value)
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             self._on_changed()
+        elif change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            selected = bool(value)
+            for handle in self._handles.values():
+                handle.setVisible(selected)
         return result
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
@@ -189,9 +308,6 @@ class DiagramText(QGraphicsTextItem):
         event.accept()
 
 
-DiagramEndpoint = DiagramShape | DiagramText
-
-
 class DiagramEdge(QGraphicsPathItem):
     """Legacy node-to-node edge kept for old DevNest diagrams."""
 
@@ -203,10 +319,10 @@ class DiagramEdge(QGraphicsPathItem):
         self._end = QPointF()
         self.setZValue(-10)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setPen(_pen("#596273"))
+        self.setPen(_pen("#596273", 2.6))
 
     def set_theme(self, palette: dict[str, str]) -> None:
-        self.setPen(_pen(palette["connector"]))
+        self.setPen(_pen(palette["connector"], 2.6))
 
     def set_endpoints(self, start: QPointF, end: QPointF) -> None:
         self._start = start
@@ -221,8 +337,34 @@ class DiagramEdge(QGraphicsPathItem):
 
 
 class DiagramFreehand(QGraphicsPathItem):
+    """A freehand drawing that can also act as a connection endpoint."""
+
+    def __init__(
+        self,
+        item_id: str,
+        path: QPainterPath | None,
+        on_changed: Callable[[], None],
+    ) -> None:
+        super().__init__(path or QPainterPath())
+        self.item_id = item_id
+        self._on_changed = on_changed
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+        )
+
     def set_theme(self, palette: dict[str, str]) -> None:
-        self.setPen(_pen(palette["stroke"]))
+        self.setPen(_pen(palette["stroke"], 2.2))
+
+    def itemChange(self, change, value):
+        result = super().itemChange(change, value)
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self._on_changed()
+        return result
+
+
+DiagramEndpoint = DiagramShape | DiagramText | DiagramFreehand
 
 
 class DiagramConnector(QGraphicsPathItem):
@@ -239,10 +381,10 @@ class DiagramConnector(QGraphicsPathItem):
         self.target_id = target_id
         self.setZValue(-6)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setPen(_pen("#596273"))
+        self.setPen(_pen("#596273", 2.6))
 
     def set_theme(self, palette: dict[str, str]) -> None:
-        self.setPen(_pen(palette["connector"]))
+        self.setPen(_pen(palette["connector"], 2.6))
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         super().paint(painter, option, widget)
@@ -266,7 +408,7 @@ def _paint_arrow_head(painter: QPainter, path: QPainterPath, pen: QPen) -> None:
         return
     line = QLineF(previous, end)
     angle = math.atan2(-line.dy(), line.dx())
-    arrow_size = 11.0
+    arrow_size = 16.0
     left = end - QPointF(
         math.sin(angle + math.pi / 3.0) * arrow_size,
         math.cos(angle + math.pi / 3.0) * arrow_size,
@@ -286,15 +428,21 @@ class DiagramScene(QGraphicsScene):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.mode = "select"
-        self.current_path: DiagramFreehand | None = None
+        self.current_path: DiagramFreehand | None = None  # legacy only
         self.current_connector: DiagramConnector | None = None
         self._last_draw_point: QPointF | None = None
+        self._shape_preview: QGraphicsPathItem | None = None
+        self._shape_start: QPointF | None = None
+        self._shape_type: str | None = None
         self.palette = dict(DEFAULT_DIAGRAM_PALETTE)
         self.path_pen = _pen(self.palette["stroke"])
         self.loading = False
         self.setSceneRect(-2500, -2500, 5000, 5000)
 
     def set_mode(self, mode: str) -> None:
+        self._cancel_shape_preview()
+        if self.current_connector is not None and self.current_connector.scene() is self:
+            self.removeItem(self.current_connector)
         self.mode = mode
         self.current_path = None
         self.current_connector = None
@@ -315,14 +463,85 @@ class DiagramScene(QGraphicsScene):
         pos: QPointF,
         text: str | None = None,
         item_id: str | None = None,
+        width: float | None = None,
+        height: float | None = None,
+        notify: bool = True,
     ) -> DiagramShape:
         label = text if text is not None else SHAPE_LABELS.get(shape_type, "Shape")
-        shape = DiagramShape(item_id or self._new_id(), shape_type, label, self._notify_changed)
+        shape = DiagramShape(
+            item_id or self._new_id(),
+            shape_type,
+            label,
+            self._notify_changed,
+            width=width,
+            height=height,
+        )
         shape.set_theme(self.palette)
         self.addItem(shape)
         shape.setPos(pos)
+        if notify:
+            self._notify_changed()
+        return shape
+
+    @staticmethod
+    def _drag_rect(start: QPointF, end: QPointF) -> QRectF:
+        return QRectF(start, end).normalized()
+
+    def _begin_shape_preview(self, shape_type: str, pos: QPointF) -> None:
+        self._cancel_shape_preview()
+        self._shape_start = pos
+        self._shape_type = shape_type if shape_type in SHAPE_SIZES else "square"
+        preview = QGraphicsPathItem()
+        preview.setZValue(50.0)
+        pen = _pen(self.palette["connector"], 1.6)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        preview.setPen(pen)
+        fill = QColor(self.palette["fill"])
+        fill.setAlpha(72)
+        preview.setBrush(QBrush(fill))
+        preview.setPath(_make_shape_path(self._shape_type, 1.0, 1.0))
+        preview.setPos(pos)
+        self.addItem(preview)
+        self._shape_preview = preview
+
+    def _update_shape_preview(self, pos: QPointF) -> None:
+        if self._shape_preview is None or self._shape_start is None or self._shape_type is None:
+            return
+        rect = self._drag_rect(self._shape_start, pos)
+        self._shape_preview.setPos(rect.topLeft())
+        self._shape_preview.setPath(
+            _make_shape_path(self._shape_type, max(1.0, rect.width()), max(1.0, rect.height()))
+        )
+
+    def _finish_shape_preview(self, pos: QPointF) -> DiagramShape | None:
+        if self._shape_preview is None or self._shape_start is None or self._shape_type is None:
+            self._cancel_shape_preview()
+            return None
+        rect = self._drag_rect(self._shape_start, pos)
+        shape_type = self._shape_type
+        self._cancel_shape_preview()
+        if rect.width() < MIN_CREATE_DRAG or rect.height() < MIN_CREATE_DRAG:
+            return None
+        width = max(MIN_SHAPE_WIDTH, rect.width())
+        height = max(MIN_SHAPE_HEIGHT, rect.height())
+        shape = self.add_shape(
+            shape_type,
+            rect.topLeft(),
+            width=width,
+            height=height,
+            notify=False,
+        )
+        self.clearSelection()
+        shape.setSelected(True)
         self._notify_changed()
         return shape
+
+    def _cancel_shape_preview(self) -> None:
+        if self._shape_preview is not None and self._shape_preview.scene() is self:
+            self.removeItem(self._shape_preview)
+        self._shape_preview = None
+        self._shape_start = None
+        self._shape_type = None
 
     def add_text(self, pos: QPointF, text: str = "Text", item_id: str | None = None) -> DiagramText:
         item = DiagramText(item_id or self._new_id(), text, self._notify_changed)
@@ -342,6 +561,19 @@ class DiagramScene(QGraphicsScene):
         self._notify_changed()
         return edge
 
+    def add_freehand_path(
+        self,
+        path: QPainterPath,
+        item_id: str | None = None,
+        notify: bool = True,
+    ) -> DiagramFreehand:
+        item = DiagramFreehand(item_id or self._new_id(), path, self._notify_changed)
+        item.set_theme(self.palette)
+        self.addItem(item)
+        if notify:
+            self._notify_changed()
+        return item
+
     def add_connector_path(
         self,
         path: QPainterPath,
@@ -349,6 +581,11 @@ class DiagramScene(QGraphicsScene):
         source_id: str | None = None,
         target_id: str | None = None,
     ) -> DiagramConnector:
+        if not source_id or not target_id or source_id == target_id:
+            raise ValueError("A connector must link two different diagram items")
+        nodes = self._nodes_by_id()
+        if source_id not in nodes or target_id not in nodes:
+            raise ValueError("Connector endpoints must exist in the scene")
         connector = DiagramConnector(path, source_id=source_id, target_id=target_id)
         connector.set_theme(self.palette)
         self.addItem(connector)
@@ -371,8 +608,8 @@ class DiagramScene(QGraphicsScene):
                 continue
             source_center = source.sceneBoundingRect().center()
             target_center = target.sceneBoundingRect().center()
-            start = self._boundary_point(source, target_center)
-            end = self._boundary_point(target, source_center)
+            start = self._connection_point(source, target_center)
+            end = self._connection_point(target, source_center)
             item.set_endpoints(start, end)
 
     def update_drawn_connectors(self) -> None:
@@ -385,15 +622,42 @@ class DiagramScene(QGraphicsScene):
                 continue
             if item.source_id and item.source_id in nodes:
                 toward = QPointF(points[1][0], points[1][1])
-                start = self._boundary_point(nodes[item.source_id], toward)
+                start = self._connection_point(nodes[item.source_id], toward)
                 points[0] = [start.x(), start.y()]
             if item.target_id and item.target_id in nodes:
                 toward = QPointF(points[-2][0], points[-2][1])
-                end = self._boundary_point(nodes[item.target_id], toward)
+                end = self._connection_point(nodes[item.target_id], toward)
                 points[-1] = [end.x(), end.y()]
             rebuilt = _path_from_points(points)
             if rebuilt is not None:
                 item.setPath(rebuilt)
+
+    @staticmethod
+    def _scene_path(item: DiagramFreehand) -> QPainterPath:
+        points = _path_points(item.path())
+        if not points:
+            return QPainterPath()
+        first = item.mapToScene(QPointF(points[0][0], points[0][1]))
+        scene_path = QPainterPath(first)
+        for x, y in points[1:]:
+            scene_point = item.mapToScene(QPointF(x, y))
+            scene_path.lineTo(scene_point)
+        return scene_path
+
+    def _connection_point(self, item: DiagramEndpoint, toward: QPointF) -> QPointF:
+        if isinstance(item, DiagramFreehand):
+            # Freehand objects have no artificial center anchor. Attach the
+            # connector to the actual drawn contour point nearest to the drag.
+            scene_path = self._scene_path(item)
+            points = _path_points(scene_path)
+            if not points:
+                return item.sceneBoundingRect().center()
+            best = min(
+                (QPointF(x, y) for x, y in points),
+                key=lambda point: QLineF(point, toward).length(),
+            )
+            return best
+        return self._boundary_point(item, toward)
 
     def _boundary_point(self, item: DiagramEndpoint, toward: QPointF) -> QPointF:
         rect = item.sceneBoundingRect()
@@ -416,17 +680,28 @@ class DiagramScene(QGraphicsScene):
     def _nodes_by_id(self) -> dict[str, DiagramEndpoint]:
         result: dict[str, DiagramEndpoint] = {}
         for item in self.items():
-            if isinstance(item, (DiagramShape, DiagramText)):
+            if isinstance(item, (DiagramShape, DiagramText, DiagramFreehand)):
                 result[item.item_id] = item
         return result
 
-    def _node_at(self, pos: QPointF) -> DiagramEndpoint | None:
+    def _endpoint_at(self, pos: QPointF) -> DiagramEndpoint | None:
+        # First prefer the exact Qt hit-test, including child text labels.
         for item in self.items(pos):
             current = item
             while current is not None:
-                if isinstance(current, (DiagramShape, DiagramText)):
+                if isinstance(current, (DiagramShape, DiagramText, DiagramFreehand)):
                     return current
                 current = current.parentItem()
+
+        # A hand-drawn box/circle often has an empty interior. Treat the interior
+        # of its bounding box as a practical hit area so connecting does not
+        # require pixel-perfect clicking on the pen stroke. Smallest match wins.
+        candidates: list[DiagramFreehand] = []
+        for item in self.items():
+            if isinstance(item, DiagramFreehand) and item.sceneBoundingRect().adjusted(-8, -8, 8, 8).contains(pos):
+                candidates.append(item)
+        if candidates:
+            return min(candidates, key=lambda item: item.sceneBoundingRect().width() * item.sceneBoundingRect().height())
         return None
 
     @staticmethod
@@ -442,9 +717,7 @@ class DiagramScene(QGraphicsScene):
         pos = event.scenePos()
         if event.button() == Qt.MouseButton.LeftButton:
             if self.mode.startswith("shape:"):
-                shape_type = self.mode.split(":", 1)[1]
-                width, height = SHAPE_SIZES.get(shape_type, SHAPE_SIZES["rect"])
-                self.add_shape(shape_type, pos - QPointF(width / 2.0, height / 2.0))
+                self._begin_shape_preview(self.mode.split(":", 1)[1], pos)
                 event.accept()
                 return
             if self.mode == "text":
@@ -453,59 +726,84 @@ class DiagramScene(QGraphicsScene):
                     self.add_text(pos, text or "Text")
                 event.accept()
                 return
-            if self.mode == "draw":
-                path = QPainterPath(pos)
-                self.current_path = DiagramFreehand(path)
-                self.current_path.setPen(self.path_pen)
-                self.current_path.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                self.addItem(self.current_path)
-                self._last_draw_point = pos
-                event.accept()
-                return
             if self.mode == "connect":
-                path = QPainterPath(pos)
-                source = self._node_at(pos)
-                self.current_connector = DiagramConnector(
-                    path,
-                    source_id=source.item_id if source is not None else None,
-                )
+                source = self._endpoint_at(pos)
+                if source is None:
+                    self.current_connector = None
+                    self._last_draw_point = None
+                    event.accept()
+                    return
+                start = self._connection_point(source, pos)
+                path = QPainterPath(start)
+                self.current_connector = DiagramConnector(path, source_id=source.item_id)
                 self.current_connector.set_theme(self.palette)
                 self.addItem(self.current_connector)
-                self._last_draw_point = pos
+                self._last_draw_point = start
                 event.accept()
                 return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        if self.mode == "draw" and self.current_path is not None:
-            self._last_draw_point = self._append_sample(self.current_path, event.scenePos(), self._last_draw_point)
+        if self.mode.startswith("shape:") and self._shape_preview is not None:
+            self._update_shape_preview(event.scenePos())
             event.accept()
             return
         if self.mode == "connect" and self.current_connector is not None:
-            self._last_draw_point = self._append_sample(self.current_connector, event.scenePos(), self._last_draw_point)
+            self._last_draw_point = self._append_sample(
+                self.current_connector, event.scenePos(), self._last_draw_point
+            )
+            points = _path_points(self.current_connector.path())
+            nodes = self._nodes_by_id()
+            source = nodes.get(self.current_connector.source_id or "")
+            if source is not None and len(points) >= 2:
+                toward = QPointF(points[1][0], points[1][1])
+                start = self._connection_point(source, toward)
+                points[0] = [start.x(), start.y()]
+                rebuilt = _path_from_points(points)
+                if rebuilt is not None:
+                    self.current_connector.setPath(rebuilt)
             event.accept()
             return
         super().mouseMoveEvent(event)
-        self.update_edges()
+        self.update_connections()
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self.mode in {"draw", "connect"}:
-            item: QGraphicsPathItem | None = self.current_path if self.mode == "draw" else self.current_connector
-            if item is not None:
-                self._append_sample(item, event.scenePos(), self._last_draw_point)
-                if isinstance(item, DiagramConnector):
-                    target = self._node_at(event.scenePos())
-                    item.target_id = target.item_id if target is not None else None
-                    if item.source_id == item.target_id:
-                        item.target_id = None
-                if item.path().elementCount() < 2:
-                    self.removeItem(item)
-                self.current_path = None
-                self.current_connector = None
-                self._last_draw_point = None
-                self._notify_changed()
+        if event.button() == Qt.MouseButton.LeftButton and self.mode.startswith("shape:"):
+            self._finish_shape_preview(event.scenePos())
             event.accept()
             return
+
+        if event.button() == Qt.MouseButton.LeftButton and self.mode == "connect":
+            item = self.current_connector
+            if item is not None:
+                self._append_sample(item, event.scenePos(), self._last_draw_point)
+                keep_item = item.path().elementCount() >= 2
+                target = self._endpoint_at(event.scenePos())
+                valid_target = (
+                    target is not None
+                    and item.source_id is not None
+                    and target.item_id != item.source_id
+                )
+                if not valid_target:
+                    keep_item = False
+                else:
+                    item.target_id = target.item_id
+                    points = _path_points(item.path())
+                    if len(points) >= 2:
+                        end = self._connection_point(target, QPointF(points[-2][0], points[-2][1]))
+                        points[-1] = [end.x(), end.y()]
+                        rebuilt = _path_from_points(points)
+                        if rebuilt is not None:
+                            item.setPath(rebuilt)
+                if not keep_item and item.scene() is self:
+                    self.removeItem(item)
+                self.current_connector = None
+                self._last_draw_point = None
+                if keep_item:
+                    self._notify_changed()
+            event.accept()
+            return
+
         super().mouseReleaseEvent(event)
         self._notify_changed()
 
@@ -513,7 +811,7 @@ class DiagramScene(QGraphicsScene):
         selected = list(self.selectedItems())
         if not selected:
             return
-        node_ids = {item.item_id for item in selected if isinstance(item, (DiagramShape, DiagramText))}
+        node_ids = {item.item_id for item in selected if isinstance(item, (DiagramShape, DiagramText, DiagramFreehand))}
         for item in list(self.items()):
             if isinstance(item, (DiagramEdge, DiagramConnector)) and (
                 item.source_id in node_ids or item.target_id in node_ids
@@ -533,7 +831,7 @@ class DiagramScene(QGraphicsScene):
         offset = QPointF(24.0, 24.0)
         for item in selected:
             if isinstance(item, DiagramShape):
-                copy = self.add_shape(item.shape_type, item.pos() + offset, item.text)
+                copy = self.add_shape(item.shape_type, item.pos() + offset, item.text, width=item.width, height=item.height)
                 copy.setSelected(True)
                 created = True
             elif isinstance(item, DiagramText):
@@ -541,11 +839,9 @@ class DiagramScene(QGraphicsScene):
                 copy.setSelected(True)
                 created = True
             elif isinstance(item, DiagramFreehand):
-                path = _translated_path(item.path(), offset)
-                copy = DiagramFreehand(path)
-                copy.setPen(self.path_pen)
-                copy.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                self.addItem(copy)
+                scene_path = self._scene_path(item)
+                path = _translated_path(scene_path, offset)
+                copy = self.add_freehand_path(path, notify=False)
                 copy.setSelected(True)
                 created = True
             elif isinstance(item, DiagramConnector):
@@ -599,6 +895,8 @@ class DiagramScene(QGraphicsScene):
                         "x": item.x(),
                         "y": item.y(),
                         "text": item.text,
+                        "width": item.width,
+                        "height": item.height,
                     }
                 )
             elif isinstance(item, DiagramText):
@@ -615,18 +913,24 @@ class DiagramScene(QGraphicsScene):
                 edges.append({"source": item.source_id, "target": item.target_id})
             elif isinstance(item, DiagramConnector):
                 points = _path_points(item.path())
-                if points:
-                    connector_data: dict[str, object] = {"points": points}
-                    if item.source_id:
-                        connector_data["source"] = item.source_id
-                    if item.target_id:
-                        connector_data["target"] = item.target_id
-                    connectors.append(connector_data)
+                if (
+                    points
+                    and item.source_id
+                    and item.target_id
+                    and item.source_id != item.target_id
+                ):
+                    connectors.append(
+                        {
+                            "points": points,
+                            "source": item.source_id,
+                            "target": item.target_id,
+                        }
+                    )
             elif isinstance(item, DiagramFreehand):
-                points = _path_points(item.path())
+                points = _path_points(self._scene_path(item))
                 if points:
-                    paths.append({"points": points})
-        return {"version": 3, "items": nodes, "edges": edges, "paths": paths, "connectors": connectors}
+                    paths.append({"id": item.item_id, "points": points})
+        return {"version": 5, "items": nodes, "edges": edges, "paths": paths, "connectors": connectors}
 
     def load_data(self, data: dict[str, object]) -> None:
         self.loading = True
@@ -634,6 +938,9 @@ class DiagramScene(QGraphicsScene):
             self.current_path = None
             self.current_connector = None
             self._last_draw_point = None
+            self._shape_preview = None
+            self._shape_start = None
+            self._shape_type = None
             self.clear()
             id_map: dict[str, DiagramEndpoint] = {}
             for raw in data.get("items", []) if isinstance(data, dict) else []:
@@ -651,7 +958,15 @@ class DiagramScene(QGraphicsScene):
                 else:
                     # Version 1 stored rectangle nodes as type="node" without a shape field.
                     shape_type = str(raw.get("shape", "rect"))
-                    item = self.add_shape(shape_type, pos, text, item_id)
+                    try:
+                        width = float(raw["width"]) if "width" in raw else None
+                        height = float(raw["height"]) if "height" in raw else None
+                    except (TypeError, ValueError):
+                        width = None
+                        height = None
+                    item = self.add_shape(
+                        shape_type, pos, text, item_id, width=width, height=height, notify=False
+                    )
                 id_map[item_id] = item
 
             for raw in data.get("edges", []) if isinstance(data, dict) else []:
@@ -668,10 +983,9 @@ class DiagramScene(QGraphicsScene):
                 path = _path_from_points(raw.get("points", []))
                 if path is None:
                     continue
-                path_item = DiagramFreehand(path)
-                path_item.set_theme(self.palette)
-                path_item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-                self.addItem(path_item)
+                item_id = str(raw.get("id", self._new_id()))
+                path_item = self.add_freehand_path(path, item_id=item_id, notify=False)
+                id_map[item_id] = path_item
 
             for raw in data.get("connectors", []) if isinstance(data, dict) else []:
                 if not isinstance(raw, dict):
@@ -680,9 +994,17 @@ class DiagramScene(QGraphicsScene):
                 if path is not None:
                     source_id = str(raw.get("source")) if raw.get("source") else None
                     target_id = str(raw.get("target")) if raw.get("target") else None
-                    self.add_connector_path(
-                        path, notify=False, source_id=source_id, target_id=target_id
-                    )
+                    # Version 4+ only accepts connectors that are anchored at both ends.
+                    # Legacy floating connectors are intentionally ignored instead of
+                    # reintroducing arrows that point to empty canvas space.
+                    if (
+                        source_id in id_map
+                        and target_id in id_map
+                        and source_id != target_id
+                    ):
+                        self.add_connector_path(
+                            path, notify=False, source_id=source_id, target_id=target_id
+                        )
 
             self.update_connections()
             self.set_theme(self.palette)
@@ -698,14 +1020,52 @@ class DiagramCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self._middle_panning = False
+        self._middle_pan_pos = QPointF()
+
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._middle_panning = True
+            self._middle_pan_pos = event.position()
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._middle_panning:
+            current = event.position()
+            delta = current - self._middle_pan_pos
+            self._middle_pan_pos = current
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - int(delta.x())
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - int(delta.y())
+            )
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton and self._middle_panning:
+            self._middle_panning = False
+            self.viewport().unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def set_mode(self, mode: str) -> None:
         if mode == "pan":
             self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            self.viewport().setCursor(Qt.CursorShape.OpenHandCursor)
         elif mode == "select":
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor)
 
     def set_theme(self, palette: dict[str, str] | bool) -> None:
         if isinstance(palette, bool):
@@ -787,14 +1147,14 @@ class DiagramView(QWidget):
         self._mode_buttons: dict[str, QPushButton] = {}
 
         tools = [
-            ("Select", "select", "Select and move diagram items"),
-            ("Pan", "pan", "Pan the canvas"),
-            ("Draw", "draw", "Draw any shape or line freely by hand"),
-            ("Connect", "connect", "Press and drag to draw an arrow; the route is kept exactly as drawn"),
-            ("Round", "shape:rounded", "Add a rounded process box"),
-            ("Ellipse", "shape:ellipse", "Add an ellipse"),
-            ("Diamond", "shape:diamond", "Add a diamond / decision shape"),
+            ("Select", "select", "Select/move items; selected shapes show resize handles"),
+            ("Pan", "pan", "Pan the canvas (middle mouse drag works in every tool)"),
+            ("Square", "shape:square", "Press and drag to draw a box at exactly the size you want; stretch it into a rectangle if needed"),
+            ("Round", "shape:rounded", "Press and drag to draw a rounded box at the size you want"),
+            ("Ellipse", "shape:ellipse", "Press and drag to draw an ellipse at the size you want"),
+            ("Diamond", "shape:diamond", "Press and drag to draw a decision diamond at the size you want"),
             ("Text", "text", "Add standalone text"),
+            ("Connect", "connect", "Start on one existing item and drag any route to another item; the arrow points to the target"),
         ]
         for label, mode, tooltip in tools:
             button = QPushButton(label)
@@ -824,7 +1184,7 @@ class DiagramView(QWidget):
             bar.addWidget(button)
 
         hint = QLabel(
-            "Draw: el ile serbest çiz. Connect: basılı tutup istediğin rotayı çiz; ok eğimi ve kıvrımı çizdiğin gibi saklanır."
+            "Square/Round/Ellipse/Diamond: basılı tutup sürükleyerek istediğin boyutta çiz. Select: seçili şeklin 8 tutamacından yeniden boyutlandır. Connect: bir öğeden diğerine rota çiz. Orta mouse: canvas taşı."
         )
         hint.setObjectName("diagramHint")
         hint.setContentsMargins(8, 0, 8, 2)
@@ -832,7 +1192,7 @@ class DiagramView(QWidget):
         root.addLayout(bar)
         root.addWidget(hint)
         root.addWidget(self.canvas, 1)
-        self.set_mode("draw")
+        self.set_mode("shape:square")
 
     def set_mode(self, mode: str) -> None:
         self.scene.set_mode(mode)

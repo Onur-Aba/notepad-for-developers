@@ -1,4 +1,4 @@
-# DevNest 1.2.0
+# DevNest 1.2.2
 
 DevNest is a native, offline-first desktop workspace for developers. It combines rich notes, click-to-complete checklists, lightweight task planning, TXT portability, Trash/restore, and per-note diagrams in one PySide6 application.
 
@@ -28,8 +28,9 @@ DevNest is a native, offline-first desktop workspace for developers. It combines
 - Font-family selector using fonts actually installed on the computer
 - 8–36 pt text-size slider and 100–900 font-weight slider for selected text/new typing
 - Per-note diagrams using QGraphicsScene/QGraphicsView
-- Freehand drawing, hand-drawn routed connectors with arrowheads, rounded box, ellipse, diamond, standalone text, duplicate, fit-to-view, zoom, selection, deletion, and pan
-- Square/rectangle creation tools are removed, while old square/rectangle diagram data remains backward-compatible
+- Drag-to-size Square/box, rounded box, ellipse and diamond tools; selected shapes expose eight resize handles for later adjustment
+- Hand-routed directional connectors with clear arrowheads, standalone text, duplicate, fit-to-view, zoom, selection, deletion, and middle-mouse pan
+- Legacy freehand and old rectangle diagram data remain backward-compatible even though freehand Draw is no longer a creation tool
 - Theme presets: Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, plus System mode
 - Window geometry, splitter position, active tab, theme, settings, and last note restored with QSettings
 - Rotating log files in the application data directory
@@ -221,24 +222,25 @@ Each note owns a separate diagram. Open the **Diagram** workspace button/tab or 
 
 Tools:
 
-- **Select:** select and move normal diagram shapes/text
-- **Pan:** drag the canvas
-- **Draw:** default diagram tool; press and drag to draw any line or custom shape directly by hand
-- **Connect:** press and drag from the start point to the end point; every sampled turn in the route is preserved and an arrowhead is drawn where you release
-- **Round:** add a rounded process box
-- **Ellipse:** add an ellipse
-- **Diamond:** add a decision/diamond shape
-- **Text:** add standalone text
-- **Duplicate:** duplicate selected diagram content (`Ctrl+D`)
-- **Fit:** fit all diagram objects in the viewport
-- **+ / −:** zoom
-- **Delete:** remove selected items
+- **Select:** select and move diagram items. A selected built-in shape shows **8 resize handles** (corners + edges); drag a handle to resize it after creation.
+- **Pan:** drag the canvas. In every tool, you can also hold the **middle mouse button / scroll wheel** and drag to pan without changing tools.
+- **Square:** press the left mouse button and drag the exact bounds you want. A square drag produces a square; stretching wider/taller produces a rectangular box. A simple click does **not** create a fixed-size object.
+- **Round:** press and drag to create a rounded rectangle at your chosen width and height.
+- **Ellipse:** press and drag to create an ellipse at your chosen width and height.
+- **Diamond:** press and drag to create a decision diamond at your chosen width and height.
+- **Text:** add standalone text.
+- **Connect:** begin on one existing diagram object, keep the left mouse button held, route the connection however you want, and release on a different object. The filled arrowhead marks the target direction. Starts/ends in empty canvas are rejected.
+- **Duplicate:** duplicate selected diagram content (`Ctrl+D`).
+- **Fit:** fit all diagram objects in the viewport.
+- **+/−:** zoom. The mouse wheel also zooms.
+- **Delete:** delete the current selection.
 
-The old **Square** and **Rect** creation buttons were intentionally removed in 1.2.0. You can draw arbitrary boxes/shapes with **Draw** instead. Existing notes created by older DevNest versions that already contain square or rectangle nodes still load correctly.
+Shape creation deliberately uses a **preview-first** model. Pressing the mouse only starts a temporary dashed preview; the real connectable shape is created after you drag and release. This means a half-created shape never becomes a connector endpoint and no temporary center/anchor marker is introduced while sizing it.
 
-**Connect is no longer a two-click straight-line tool.** Hold the left mouse button and draw the route you want. A connector can be angled, zig-zagged, or loosely curved because its actual path points are persisted. If the drag begins/ends on a built-in diagram shape, DevNest also records that attachment and keeps the connector endpoint on the shape boundary when the shape is moved.
+All new built-in shape dimensions are stored in the diagram JSON (`width`/`height`), so sizes survive autosave/restart. Existing diagrams from older DevNest versions still load: old rectangle/square nodes keep their fallback sizes and old freehand paths remain visible/connectable, but the old freehand **Draw** creation tool is no longer shown.
 
-Double-click a built-in shape or text item to edit its label. Shapes, text, freehand paths, routed connectors, arrow directions and connector attachment IDs are stored with the note in SQLite diagram JSON.
+Connections remain anchored to the boundary of resized shapes. Resizing or moving a shape updates attached connector endpoints, while the hand-routed middle section of the connector remains preserved.
+
 
 ## Trash and Database Optimization
 
@@ -454,4 +456,4 @@ Check `logs\devnest.log` under the DevNest application-data directory. Before ma
 
 ## Version
 
-The application version is defined once in `app/constants.py` as `VERSION = "1.2.0"`. The window metadata and About dialog read from this value.
+The application version is defined once in `app/constants.py` as `VERSION = "1.2.2"`. The window metadata and About dialog read from this value.
