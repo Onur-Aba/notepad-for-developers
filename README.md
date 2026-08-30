@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="resources/devnest.svg" alt="DevNest" width="92" height="92">
+  <img src="resources/devnest.svg" alt="DevNest" width="96" height="96">
 </p>
 
 <h1 align="center">DevNest</h1>
 
 <p align="center">
   <strong>Notes, tasks and lightweight diagrams for developers.</strong><br>
-  Native Windows desktop app · Offline-first · No account · No telemetry
+  Native desktop app for Windows · Offline-first · No account · No telemetry
 </p>
 
 <p align="center">
@@ -14,24 +14,30 @@
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
-  <img alt="Offline" src="https://img.shields.io/badge/works-offline-555?style=flat-square">
+  <img alt="Offline" src="https://img.shields.io/badge/offline-ready-555?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="./dist/DevNest.exe"><strong>⬇ Download DevNest.exe</strong></a>
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest">Latest Release</a>
   &nbsp;·&nbsp;
   <a href="#turkce">Türkçe</a>
   &nbsp;·&nbsp;
   <a href="#english">English</a>
 </p>
 
-> **Windows kullanıcıları:** Sadece programı kullanmak istiyorsanız kaynak kodu kurmanıza gerek yok. Yukarıdaki **Download DevNest.exe** bağlantısından `dist/DevNest.exe` dosyasını indirip çalıştırabilirsiniz.
+> **Windows users:** If you only want to use the application, you do not need to install the source code. Download `DevNest.exe` using the **Download DevNest.exe** button above and run it directly.
+>
+> **Windows kullanıcıları:** Sadece programı kullanmak istiyorsanız kaynak kodu kurmanıza gerek yok. Yukarıdaki **Download DevNest.exe** bağlantısından `DevNest.exe` dosyasını indirip doğrudan çalıştırabilirsiniz.
 
 ---
 
 <a id="turkce"></a>
 
-# Türkçe
+# 🇹🇷 Türkçe
 
 ## DevNest nedir?
 
@@ -47,14 +53,26 @@ Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya gönder
 | **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri |
 | **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği |
 | **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
-| **Diagram** | Boyutu sürükleyerek belirlenen şekiller, text, yönlü connector, zoom, pan, resize |
+| **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
 | **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
 | **Veri güvenliği** | Autosave, Trash, Restore, kalıcı silme, SQLite `VACUUM` |
-| **Gizlilik** | Offline çalışma, login yok, telemetry yok, cloud zorunluluğu yok |
+| **Gizlilik** | Offline çalışma, login yok, telemetry yok, zorunlu cloud servisi yok |
 
-## Hızlı kullanım
+## Hızlı indirme
 
-### Checkbox
+Kaynak kodla uğraşmadan yalnızca uygulamayı kullanmak istiyorsanız hazır Windows executable dosyasını indirebilirsiniz:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ DevNest.exe indir</strong>
+  </a>
+</p>
+
+Bu bağlantı repository içindeki büyük binary dosya önizleme sayfasına değil, GitHub Releases üzerindeki en güncel `DevNest.exe` dosyasına gider.
+
+> PyInstaller build'i gerekli Python runtime ve Qt bileşenlerini paketler. Hedef Windows bilgisayarda ayrıca Python veya PySide6 kurulu olması gerekmez.
+
+## Checkbox kullanımı
 
 Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> kullanabilirsiniz.
 
@@ -68,7 +86,7 @@ Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya
 
 **Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
 
-### TXT içe / dışa aktarma
+## TXT içe / dışa aktarma
 
 DevNest aşağıdaki biçimlerin tamamını tanır:
 
@@ -96,36 +114,39 @@ TXT formatı bold / italic gibi rich-text özelliklerini taşımaz. Bu biçimler
 Diagram alanı her not için ayrı saklanır.
 
 - **Square** — sol mouse tuşuna basılı tutup sürükleyerek istediğiniz genişlik ve yükseklikte kutu oluşturur.
-- **Round** — yuvarlatılmış dikdörtgen.
-- **Ellipse** — elips / oval.
-- **Diamond** — karar / akış diyagramı şekli.
-- **Text** — bağımsız metin öğesi.
+- **Round** — yuvarlatılmış dikdörtgen oluşturur.
+- **Ellipse** — elips / oval oluşturur.
+- **Diamond** — karar / akış diyagramı şekli oluşturur.
+- **Text** — bağımsız metin öğesi ekler.
 - **Connect** — bir nesnenin üzerinde başlayıp başka bir nesnenin üzerinde biten yönlü bağlantı çizer.
 - **Select** — nesneleri taşır; seçilen shape'in kenar ve köşe tutamaçlarıyla boyutunu değiştirir.
-- **Orta mouse tuşu + sürükleme** — seçili araç ne olursa olsun canvas üzerinde gezinir.
-- **Mouse wheel** — zoom.
+- **Orta mouse tuşu + sürükleme** — aktif araçtan bağımsız olarak canvas üzerinde gezinir.
+- **Mouse wheel** — zoom yapar.
 
 Connector yalnızca geçerli bir nesneden başlayıp başka bir geçerli nesnede bitebilir. Boş canvas'a bırakılan bağlantı kaydedilmez. Ok başı bağlantının yönünü gösterir.
 
 ## Temalar
 
-DevNest sekiz görünüm seçeneği sunar:
+DevNest farklı çalışma ortamlarına uygun tema seçenekleri sunar.
 
-**Dark**
+### Dark
+
 - Matte Black
 - Midnight Slate
 - Graphite
 
-**Light**
+### Light
+
 - Clean Light
 - Soft Gray
 - Warm Paper
 - Cool Mist
 
-**System**
-- İşletim sistemi renk şemasını kullanır.
+### System
 
-Seçilen tema QSettings ile kaydedilir ve bir sonraki açılışta geri yüklenir.
+İşletim sisteminin renk tercihine göre görünüm uygular.
+
+Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri yüklenir.
 
 ## Klavye kısayolları
 
@@ -145,22 +166,6 @@ Seçilen tema QSettings ile kaydedilir ve bir sonraki açılışta geri yükleni
 | Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
 | Diagram öğesini çoğalt | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
 | Seçili diagram öğesini sil | <kbd>Delete</kbd> |
-
-## Sadece EXE kullanmak istiyorum
-
-Kaynak kodla uğraşmak istemiyorsanız repository içindeki hazır Windows executable dosyasını indirebilirsiniz:
-
-### **[⬇ DevNest.exe indir](./dist/DevNest.exe)**
-
-Dosya yolu:
-
-```text
-dist\DevNest.exe
-```
-
-PyInstaller ile oluşturulan executable kendi Python runtime'ını ve gerekli Qt bileşenlerini içerir. Hedef bilgisayarda ayrıca Python veya PySide6 kurulması gerekmez.
-
-> İmzalanmamış yeni uygulamalarda Windows SmartScreen uyarısı görülebilir. Geniş çaplı dağıtım yapılacaksa executable'ın bir code-signing sertifikasıyla imzalanması önerilir.
 
 ## Kaynak koddan çalıştırma
 
@@ -218,7 +223,9 @@ python main.py
 
 Projede hazır `build.ps1` ve `DevNest.spec` bulunur.
 
-### Klasörlü build — geliştirme ve ilk test için önerilir
+### Klasörlü build
+
+Geliştirme ve ilk dağıtım testi için:
 
 ```powershell
 .\build.ps1
@@ -230,9 +237,11 @@ Projede hazır `build.ps1` ve `DevNest.spec` bulunur.
 dist\DevNest\DevNest.exe
 ```
 
-Bu dağıtım şeklinde `dist\DevNest` klasörünün tamamını taşımanız gerekir.
+Bu build tipinde `dist\DevNest` klasörünün tamamını dağıtmanız gerekir.
 
-### Tek dosya EXE — paylaşım için
+### Tek dosya EXE
+
+Tek `DevNest.exe` üretmek için:
 
 ```powershell
 .\build.ps1 -OneFile
@@ -244,11 +253,30 @@ Bu dağıtım şeklinde `dist\DevNest` klasörünün tamamını taşımanız ger
 dist\DevNest.exe
 ```
 
-Bu dosya tek başına başka bir Windows 10 / 11 64-bit bilgisayara taşınabilir.
+GitHub Releases'a yüklenecek dosya bu tek dosyalık build olabilir.
+
+## GitHub Release yayınlama
+
+Yeni bir sürüm yayınlarken:
+
+1. GitHub repository sayfasında **Releases** bölümünü açın.
+2. **Draft a new release** seçin.
+3. Örneğin `v1.2.3` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 1.2.3` yapın.
+5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
+6. Release'i yayınlayın.
+
+README'deki indirme bağlantısı:
+
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
+```
+
+olduğu için sonraki sürümlerde README bağlantısını değiştirmeniz gerekmez. Release asset adı `DevNest.exe` olarak kaldığı sürece buton en güncel release dosyasını indirir.
 
 ## Veriler nerede saklanıyor?
 
-DevNest kullanıcı verisini executable'ın bulunduğu klasöre yazmak zorunda değildir. SQLite veritabanı Qt'nin application-data konumunda tutulur.
+DevNest kullanıcı verisini executable'ın yanına yazmak zorunda değildir. SQLite veritabanı Qt'nin application-data konumunda tutulur.
 
 Kesin veritabanı yolunu **Help → About DevNest** ekranında görebilirsiniz.
 
@@ -258,11 +286,15 @@ Loglar aynı application-data alanındaki `logs` klasöründe tutulur.
 
 Yedek almadan önce DevNest'i kapatın ve `devnest.db` dosyasını güvenli bir konuma kopyalayın.
 
+### Windows SmartScreen
+
+İmzalanmamış yeni executable dosyalarında Windows SmartScreen uyarısı görülebilir. Uygulamayı geniş çapta dağıtacaksanız `DevNest.exe` dosyasını bir code-signing sertifikasıyla imzalamak daha profesyonel bir dağıtım sağlar.
+
 ---
 
 <a id="english"></a>
 
-# English
+# 🇬🇧 English
 
 ## What is DevNest?
 
@@ -283,9 +315,21 @@ It does not require a browser, an account or a network connection. Notes stay on
 | **Data safety** | Autosave, Trash, Restore, permanent delete and SQLite `VACUUM` |
 | **Privacy** | Offline operation, no login, no telemetry and no mandatory cloud service |
 
-## Quick usage
+## Quick download
 
-### Checklists
+If you only want to use DevNest and do not need the source code, download the ready-to-run Windows executable:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+</p>
+
+This link goes directly to the latest `DevNest.exe` asset published under GitHub Releases instead of opening GitHub's large binary file preview page.
+
+> The PyInstaller build bundles the required Python runtime and Qt components. Python and PySide6 do not need to be installed separately on the target Windows machine.
+
+## Checklists
 
 Use the checkbox toolbar action or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to turn a line into a task.
 
@@ -299,7 +343,7 @@ Completed tasks are struck through automatically. Unchecking a task removes the 
 
 With **Auto Checkbox** enabled, pressing <kbd>Enter</kbd> after a non-empty task creates another task with the same indentation. Pressing <kbd>Enter</kbd> on an empty task exits checklist mode. Use <kbd>Tab</kbd> and <kbd>Shift</kbd> + <kbd>Tab</kbd> for nesting.
 
-### TXT import / export
+## TXT import / export
 
 DevNest recognizes all of the following forms:
 
@@ -320,41 +364,44 @@ Portable TXT export uses:
     [x] Database
 ```
 
-TXT cannot retain rich formatting such as bold or italic. DevNest keeps the native rich-text version in SQLite, so formatting remains intact inside the application.
+TXT cannot retain rich formatting such as bold or italic. DevNest keeps the native rich-text version in SQLite so formatting remains intact inside the application.
 
 ## Diagrams
 
 Each note has its own diagram workspace.
 
 - **Square** — press and drag to create a box at the exact width and height you want.
-- **Round** — rounded rectangle.
-- **Ellipse** — ellipse / oval.
-- **Diamond** — decision / flowchart shape.
-- **Text** — standalone text element.
+- **Round** — create a rounded rectangle.
+- **Ellipse** — create an ellipse / oval.
+- **Diamond** — create a decision / flowchart shape.
+- **Text** — add a standalone text element.
 - **Connect** — draw a directional connection from one existing object to another.
 - **Select** — move objects and resize selected shapes using edge and corner handles.
 - **Middle mouse button + drag** — pan the canvas regardless of the active tool.
 - **Mouse wheel** — zoom.
 
-A connector must start on a valid object and end on a different valid object. Connections released onto empty canvas are discarded. The arrowhead clearly marks the target direction.
+A connector must start on a valid object and end on a different valid object. Connections released onto empty canvas are discarded. The arrowhead marks the target direction.
 
 ## Themes
 
-DevNest includes eight appearance modes:
+DevNest includes several appearance presets for different environments.
 
-**Dark**
+### Dark
+
 - Matte Black
 - Midnight Slate
 - Graphite
 
-**Light**
+### Light
+
 - Clean Light
 - Soft Gray
 - Warm Paper
 - Cool Mist
 
-**System**
-- Follows the operating system color scheme.
+### System
+
+Follows the operating system color preference.
 
 The selected theme is stored with QSettings and restored on the next launch.
 
@@ -376,22 +423,6 @@ The selected theme is stored with QSettings and restored on the next launch.
 | Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
 | Duplicate diagram item | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
 | Delete selected diagram item | <kbd>Delete</kbd> |
-
-## I only want the EXE
-
-If you only want to use the application, you do not need to install Python or clone the development environment.
-
-### **[⬇ Download DevNest.exe](./dist/DevNest.exe)**
-
-Repository path:
-
-```text
-dist\DevNest.exe
-```
-
-The PyInstaller build bundles the Python runtime and required Qt components, so Python and PySide6 do not need to be installed on the target machine.
-
-> Windows SmartScreen may warn about a newly distributed unsigned executable. For public distribution, signing the executable with a code-signing certificate is recommended.
 
 ## Run from source
 
@@ -449,7 +480,9 @@ python main.py
 
 The repository includes `build.ps1` and `DevNest.spec`.
 
-### Folder build — recommended for initial testing
+### Folder build
+
+Recommended for development and initial distribution testing:
 
 ```powershell
 .\build.ps1
@@ -461,9 +494,11 @@ Output:
 dist\DevNest\DevNest.exe
 ```
 
-Distribute the complete `dist\DevNest` directory when using this build mode.
+Distribute the complete `dist\DevNest` directory when using this mode.
 
-### Single-file build — convenient for distribution
+### Single-file EXE
+
+To create one standalone executable:
 
 ```powershell
 .\build.ps1 -OneFile
@@ -475,7 +510,26 @@ Output:
 dist\DevNest.exe
 ```
 
-The resulting file can be copied to another 64-bit Windows 10 / 11 machine and run without a separate Python installation.
+This single-file build can be uploaded as the GitHub Release asset.
+
+## Publishing a GitHub Release
+
+When publishing a new version:
+
+1. Open **Releases** in the GitHub repository.
+2. Select **Draft a new release**.
+3. Create a tag such as `v1.2.3`.
+4. Use a release title such as `DevNest 1.2.3`.
+5. Upload `dist\DevNest.exe` as a release asset.
+6. Publish the release.
+
+The README download button points to:
+
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
+```
+
+As long as the release asset remains named `DevNest.exe`, the README button automatically downloads the executable from the latest published release. You do not need to update the README link for every version.
 
 ## Where is the data stored?
 
@@ -488,6 +542,10 @@ Log files are stored in the `logs` directory inside the same application-data ar
 ### Backup
 
 Close DevNest before creating a backup, then copy `devnest.db` to a safe location.
+
+### Windows SmartScreen
+
+Windows SmartScreen may warn about a newly distributed unsigned executable. If DevNest is distributed publicly, signing `DevNest.exe` with a code-signing certificate provides a more professional Windows distribution experience.
 
 ---
 
