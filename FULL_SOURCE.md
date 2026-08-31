@@ -1,6 +1,6 @@
-# DevNest 1.2.4 — Full Source
+# DevNest 1.2.5 — Full Source
 
-This file contains the complete text-source snapshot for DevNest 1.2.4. Binary icon files are included in the ZIP but intentionally not embedded here.
+This file contains the complete text-source snapshot for DevNest 1.2.5. Binary icon files are included in the ZIP but intentionally not embedded here.
 
 ## `.gitignore`
 
@@ -12,6 +12,669 @@ __pycache__/
 build/
 dist/
 *.log
+````
+
+## `DevNest.spec`
+
+````python
+# -*- mode: python ; coding: utf-8 -*-
+import argparse
+from pathlib import Path
+
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--onefile", action="store_true")
+options, _unknown = parser.parse_known_args()
+
+project_root = Path(SPECPATH)
+
+a = Analysis(
+    [str(project_root / "main.py")],
+    pathex=[str(project_root)],
+    binaries=[],
+    datas=[(str(project_root / "resources"), "resources")],
+    hiddenimports=["PySide6.QtSvg"],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=1,
+)
+pyz = PYZ(a.pure)
+
+common = dict(
+    name="DevNest",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(project_root / "resources" / "devnest.ico"),
+)
+
+if options.onefile:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        upx_exclude=[],
+        runtime_tmpdir=None,
+        **common,
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        **common,
+    )
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name="DevNest",
+    )
+````
+
+## `README.md`
+
+````markdown
+<p align="center">
+  <img src="resources/devnest.svg" alt="DevNest" width="96" height="96">
+</p>
+
+<h1 align="center">DevNest</h1>
+
+<p align="center">
+  <strong>Notes, tasks and lightweight diagrams for developers.</strong><br>
+  Native desktop app for Windows · Offline-first · No account · No telemetry
+</p>
+
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.5-2f81f7?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
+  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
+  <img alt="Offline" src="https://img.shields.io/badge/offline-ready-555?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest">Latest Release</a>
+  &nbsp;·&nbsp;
+  <a href="#turkce">Türkçe</a>
+  &nbsp;·&nbsp;
+  <a href="#english">English</a>
+</p>
+
+> **Windows users:** If you only want to use the application, you do not need to install the source code. Download `DevNest.exe` using the **Download DevNest.exe** button above and run it directly.
+>
+> **Windows kullanıcıları:** Sadece programı kullanmak istiyorsanız kaynak kodu kurmanıza gerek yok. Yukarıdaki **Download DevNest.exe** bağlantısından `DevNest.exe` dosyasını indirip doğrudan çalıştırabilirsiniz.
+
+---
+
+<a id="turkce"></a>
+
+# 🇹🇷 Türkçe
+
+## DevNest nedir?
+
+DevNest; notlarını, yapılacak işlerini, teknik fikirlerini ve küçük yazılım diyagramlarını tek yerde tutmak isteyen geliştiriciler için hazırlanmış native bir masaüstü uygulamasıdır.
+
+Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya göndermez. Veriler yerel SQLite veritabanında saklanır; arayüz PySide6 / Qt ile çalışır.
+
+### Öne çıkan özellikler
+
+| Alan | Özellikler |
+|---|---|
+| **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
+| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
+| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
+| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
+| **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
+| **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
+| **Veri güvenliği** | Autosave, Trash, Restore, kalıcı silme, SQLite `VACUUM` |
+| **Gizlilik** | Offline çalışma, login yok, telemetry yok, zorunlu cloud servisi yok |
+
+## Hızlı indirme
+
+Kaynak kodla uğraşmadan yalnızca uygulamayı kullanmak istiyorsanız hazır Windows executable dosyasını indirebilirsiniz:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ DevNest.exe indir</strong>
+  </a>
+</p>
+
+Bu bağlantı repository içindeki büyük binary dosya önizleme sayfasına değil, GitHub Releases üzerindeki en güncel `DevNest.exe` dosyasına gider.
+
+> PyInstaller build'i gerekli Python runtime ve Qt bileşenlerini paketler. Hedef Windows bilgisayarda ayrıca Python veya PySide6 kurulu olması gerekmez.
+
+## Checkbox kullanımı
+
+Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> kullanabilirsiniz.
+
+```text
+☐ API endpointlerini hazırla
+☐ Database bağlantısını oluştur
+☑ Login ekranını tamamla
+```
+
+İşaretlenen görevlerin metni otomatik olarak üstü çizili hale gelir. İşaret kaldırıldığında strikethrough da kaldırılır.
+
+**Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
+
+## TXT içe / dışa aktarma
+
+DevNest aşağıdaki biçimlerin tamamını tanır:
+
+```text
+[ ] Backend
+[x] Database
+[X] Authentication
+☐ Frontend
+☑ Login
+✓ Deploy
+```
+
+Dışa aktarılan checklist'ler taşınabilir bir biçimde yazılır:
+
+```text
+[ ] Backend
+    [ ] API
+    [x] Database
+```
+
+TXT formatı bold / italic gibi rich-text özelliklerini taşımaz. Bu biçimler uygulamanın SQLite veritabanındaki native not içeriğinde korunur.
+
+## Diagram kullanımı
+
+Diagram alanı her not için ayrı saklanır.
+
+- **Square** — sol mouse tuşuna basılı tutup sürükleyerek istediğiniz genişlik ve yükseklikte kutu oluşturur.
+- **Round** — yuvarlatılmış dikdörtgen oluşturur.
+- **Ellipse** — elips / oval oluşturur.
+- **Diamond** — karar / akış diyagramı şekli oluşturur.
+- **Text** — bağımsız metin öğesi ekler.
+- **Connect** — bir nesnenin üzerinde başlayıp başka bir nesnenin üzerinde biten yönlü bağlantı çizer.
+- **Select** — nesneleri taşır; seçilen shape'in kenar ve köşe tutamaçlarıyla boyutunu değiştirir.
+- **Orta mouse tuşu + sürükleme** — aktif araçtan bağımsız olarak canvas üzerinde gezinir.
+- **Mouse wheel** — zoom yapar.
+
+Connector yalnızca geçerli bir nesneden başlayıp başka bir geçerli nesnede bitebilir. Boş canvas'a bırakılan bağlantı kaydedilmez. Ok başı bağlantının yönünü gösterir.
+
+## Temalar
+
+DevNest farklı çalışma ortamlarına uygun tema seçenekleri sunar.
+
+### Dark
+
+- Matte Black
+- Midnight Slate
+- Graphite
+
+### Light
+
+- Clean Light
+- Soft Gray
+- Warm Paper
+- Cool Mist
+
+### System
+
+İşletim sisteminin renk tercihine göre görünüm uygular.
+
+Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri yüklenir.
+
+## Klavye kısayolları
+
+| İşlem | Kısayol |
+|---|---|
+| Yeni not | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
+| Not içinde bul (editör içi arama, tüm eşleşmeler vurgulanır) | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Geri al | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
+| Yinele | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
+| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
+| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
+| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
+| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
+| TXT export | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
+| Sidebar aç / kapat | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
+| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
+| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Diagram öğesini çoğalt | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Seçili diagram öğesini sil | <kbd>Delete</kbd> |
+
+
+### Editör içi arama
+
+`Ctrl+F` ayrı bir pencere açmak yerine editörün sağ üstünde arama çubuğunu gösterir. Yazarken bütün eşleşmeler anında vurgulanır. **Down** veya **Up** yönlerinden yalnızca biri seçilebilir; **Find** veya Enter ile aynı sorgunun sonraki/önceki eşleşmesine geçilir. Uzun notlarda eşleşme konumları dikey scrollbar üzerinde de aktif temaya uygun küçük işaretlerle gösterilir.
+
+- Aynı sorguda tekrar Find kullanmak aynı eşleşmede kalmaz; seçilen yönde ilerler.
+- Arama varsayılan olarak büyük/küçük harf duyarsızdır.
+- Esc veya × ile kapatıldığında geçici vurgular temizlenir.
+
+## Kaynak koddan çalıştırma
+
+### Gereksinimler
+
+- Windows 10 / 11
+- Python 3.12+
+- PowerShell
+
+Repository'yi indirdikten sonra proje klasöründe PowerShell açın.
+
+```powershell
+python --version
+```
+
+Virtual environment oluşturun:
+
+```powershell
+python -m venv .venv
+```
+
+Aktifleştirin:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+PowerShell izin vermezse yalnızca mevcut terminal oturumu için:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Bağımlılıkları kurun:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Testleri çalıştırın:
+
+```powershell
+python -m pytest -q
+```
+
+Uygulamayı başlatın:
+
+```powershell
+python main.py
+```
+
+## Windows EXE oluşturma
+
+Projede hazır `build.ps1` ve `DevNest.spec` bulunur.
+
+### Klasörlü build
+
+Geliştirme ve ilk dağıtım testi için:
+
+```powershell
+.\build.ps1
+```
+
+Çıktı:
+
+```text
+dist\DevNest\DevNest.exe
+```
+
+Bu build tipinde `dist\DevNest` klasörünün tamamını dağıtmanız gerekir.
+
+### Tek dosya EXE
+
+Tek `DevNest.exe` üretmek için:
+
+```powershell
+.\build.ps1 -OneFile
+```
+
+Çıktı:
+
+```text
+dist\DevNest.exe
+```
+
+GitHub Releases'a yüklenecek dosya bu tek dosyalık build olabilir.
+
+## GitHub Release yayınlama
+
+Yeni bir sürüm yayınlarken:
+
+1. GitHub repository sayfasında **Releases** bölümünü açın.
+2. **Draft a new release** seçin.
+3. Örneğin `v1.2.5` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 1.2.5` yapın.
+5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
+6. Release'i yayınlayın.
+
+README'deki indirme bağlantısı:
+
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
+```
+
+olduğu için sonraki sürümlerde README bağlantısını değiştirmeniz gerekmez. Release asset adı `DevNest.exe` olarak kaldığı sürece buton en güncel release dosyasını indirir.
+
+## Veriler nerede saklanıyor?
+
+DevNest kullanıcı verisini executable'ın yanına yazmak zorunda değildir. SQLite veritabanı Qt'nin application-data konumunda tutulur.
+
+Kesin veritabanı yolunu **Help → About DevNest** ekranında görebilirsiniz.
+
+Loglar aynı application-data alanındaki `logs` klasöründe tutulur.
+
+### Yedekleme
+
+Yedek almadan önce DevNest'i kapatın ve `devnest.db` dosyasını güvenli bir konuma kopyalayın.
+
+### Windows SmartScreen
+
+İmzalanmamış yeni executable dosyalarında Windows SmartScreen uyarısı görülebilir. Uygulamayı geniş çapta dağıtacaksanız `DevNest.exe` dosyasını bir code-signing sertifikasıyla imzalamak daha profesyonel bir dağıtım sağlar.
+
+---
+
+<a id="english"></a>
+
+# 🇬🇧 English
+
+## What is DevNest?
+
+DevNest is a native desktop workspace for developers who want notes, checklists, technical ideas and lightweight software diagrams in one place.
+
+It does not require a browser, an account or a network connection. Notes stay on your machine in a local SQLite database, while the interface is built with PySide6 / Qt.
+
+### Highlights
+
+| Area | Features |
+|---|---|
+| **Notes** | Fast note creation, search, rename, duplicate and sorting |
+| **Editor** | Bold, italic, underline, strikethrough, lists, font / size / weight controls; checkbox and list markers follow font formatting |
+| **Tasks** | Clickable `☐ / ☑` items, automatic strikethrough, Auto Checkbox and nested tasks |
+| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` detection with UTF-8 import/export |
+| **Diagrams** | Drag-to-size shapes, text, directional connectors, zoom, pan and resize |
+| **Themes** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist and System |
+| **Data safety** | Autosave, Trash, Restore, permanent delete and SQLite `VACUUM` |
+| **Privacy** | Offline operation, no login, no telemetry and no mandatory cloud service |
+
+## Quick download
+
+If you only want to use DevNest and do not need the source code, download the ready-to-run Windows executable:
+
+<p align="center">
+  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
+    <strong>⬇ Download DevNest.exe</strong>
+  </a>
+</p>
+
+This link goes directly to the latest `DevNest.exe` asset published under GitHub Releases instead of opening GitHub's large binary file preview page.
+
+> The PyInstaller build bundles the required Python runtime and Qt components. Python and PySide6 do not need to be installed separately on the target Windows machine.
+
+## Checklists
+
+Use the checkbox toolbar action or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to turn a line into a task.
+
+```text
+☐ Prepare API endpoints
+☐ Create database connection
+☑ Finish login screen
+```
+
+Completed tasks are struck through automatically. Unchecking a task removes the strikethrough.
+
+With **Auto Checkbox** enabled, pressing <kbd>Enter</kbd> after a non-empty task creates another task with the same indentation. Pressing <kbd>Enter</kbd> on an empty task exits checklist mode. Use <kbd>Tab</kbd> and <kbd>Shift</kbd> + <kbd>Tab</kbd> for nesting.
+
+## TXT import / export
+
+DevNest recognizes all of the following forms:
+
+```text
+[ ] Backend
+[x] Database
+[X] Authentication
+☐ Frontend
+☑ Login
+✓ Deploy
+```
+
+Portable TXT export uses:
+
+```text
+[ ] Backend
+    [ ] API
+    [x] Database
+```
+
+TXT cannot retain rich formatting such as bold or italic. DevNest keeps the native rich-text version in SQLite so formatting remains intact inside the application.
+
+## Diagrams
+
+Each note has its own diagram workspace.
+
+- **Square** — press and drag to create a box at the exact width and height you want.
+- **Round** — create a rounded rectangle.
+- **Ellipse** — create an ellipse / oval.
+- **Diamond** — create a decision / flowchart shape.
+- **Text** — add a standalone text element.
+- **Connect** — draw a directional connection from one existing object to another.
+- **Select** — move objects and resize selected shapes using edge and corner handles.
+- **Middle mouse button + drag** — pan the canvas regardless of the active tool.
+- **Mouse wheel** — zoom.
+
+A connector must start on a valid object and end on a different valid object. Connections released onto empty canvas are discarded. The arrowhead marks the target direction.
+
+## Themes
+
+DevNest includes several appearance presets for different environments.
+
+### Dark
+
+- Matte Black
+- Midnight Slate
+- Graphite
+
+### Light
+
+- Clean Light
+- Soft Gray
+- Warm Paper
+- Cool Mist
+
+### System
+
+Follows the operating system color preference.
+
+The selected theme is stored with QSettings and restored on the next launch.
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+|---|---|
+| New note | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
+| Find in note (inline bar, all matches highlighted) | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Undo | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
+| Redo | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
+| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
+| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
+| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
+| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
+| Export TXT | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
+| Toggle sidebar | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
+| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
+| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
+| Duplicate diagram item | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
+| Delete selected diagram item | <kbd>Delete</kbd> |
+
+
+### Inline Find
+
+`Ctrl+F` opens a search bar inside the editor instead of a dialog. Matches are highlighted as you type. Choose **Down** or **Up** (mutually exclusive), then press **Find** or Enter to move to the next match in that direction. Long notes also show theme-aware match markers on the vertical scrollbar.
+
+- The first query highlights every match immediately.
+- Repeating Find advances to the next/previous occurrence instead of selecting the same one again.
+- Search is case-insensitive by default.
+- Esc or the × button closes the bar and clears temporary highlights.
+
+## Run from source
+
+### Requirements
+
+- Windows 10 / 11
+- Python 3.12+
+- PowerShell
+
+Open PowerShell in the project directory and verify Python:
+
+```powershell
+python --version
+```
+
+Create a virtual environment:
+
+```powershell
+python -m venv .venv
+```
+
+Activate it:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks script activation for the current session:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Run the test suite:
+
+```powershell
+python -m pytest -q
+```
+
+Start DevNest:
+
+```powershell
+python main.py
+```
+
+## Build a Windows executable
+
+The repository includes `build.ps1` and `DevNest.spec`.
+
+### Folder build
+
+Recommended for development and initial distribution testing:
+
+```powershell
+.\build.ps1
+```
+
+Output:
+
+```text
+dist\DevNest\DevNest.exe
+```
+
+Distribute the complete `dist\DevNest` directory when using this mode.
+
+### Single-file EXE
+
+To create one standalone executable:
+
+```powershell
+.\build.ps1 -OneFile
+```
+
+Output:
+
+```text
+dist\DevNest.exe
+```
+
+This single-file build can be uploaded as the GitHub Release asset.
+
+## Publishing a GitHub Release
+
+When publishing a new version:
+
+1. Open **Releases** in the GitHub repository.
+2. Select **Draft a new release**.
+3. Create a tag such as `v1.2.5`.
+4. Use a release title such as `DevNest 1.2.5`.
+5. Upload `dist\DevNest.exe` as a release asset.
+6. Publish the release.
+
+The README download button points to:
+
+```text
+https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
+```
+
+As long as the release asset remains named `DevNest.exe`, the README button automatically downloads the executable from the latest published release. You do not need to update the README link for every version.
+
+## Where is the data stored?
+
+DevNest does not require user data to be stored next to the executable. The SQLite database is stored under Qt's application-data location for the current Windows user.
+
+The exact database path is shown under **Help → About DevNest**.
+
+Log files are stored in the `logs` directory inside the same application-data area.
+
+### Backup
+
+Close DevNest before creating a backup, then copy `devnest.db` to a safe location.
+
+### Windows SmartScreen
+
+Windows SmartScreen may warn about a newly distributed unsigned executable. If DevNest is distributed publicly, signing `DevNest.exe` with a code-signing certificate provides a more professional Windows distribution experience.
+
+---
+
+## Technology
+
+```text
+Python 3.12+
+PySide6 / Qt 6
+SQLite
+QSettings
+PyInstaller
+```
+
+DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
+
+<p align="center">
+  <sub>DevNest 1.2.5 · Native desktop workspace for everyday development notes and planning.</sub>
+</p>
 ````
 
 ## `app/__init__.py`
@@ -30,7 +693,7 @@ from __future__ import annotations
 APP_NAME = "DevNest"
 ORGANIZATION_NAME = "DevNest"
 ORGANIZATION_DOMAIN = "devnest.local"
-VERSION = "1.2.4"
+VERSION = "1.2.5"
 DEFAULT_NOTE_TITLE = "Untitled Note"
 DEFAULT_AUTOSAVE_DELAY_MS = 750
 MIN_AUTOSAVE_DELAY_MS = 300
@@ -1325,16 +1988,8 @@ class MainWindow(QMainWindow):
         self.stats_label.setText(f"Words: {words}  •  Lines: {lines}  •  Ln {line}, Col {col}")
 
     def find_in_note(self) -> None:
-        term, ok = QInputDialog.getText(self, "Find", "Find text:")
-        if not ok or not term:
-            return
-        if self.editor.find(term):
-            return
-        cursor = self.editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self.editor.setTextCursor(cursor)
-        if not self.editor.find(term):
-            QMessageBox.information(self, "Find", f'"{term}" was not found.')
+        self.tabs.setCurrentIndex(0)
+        self.editor.show_find_bar()
 
     def import_txt(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Import TXT", "", "Text Files (*.txt);;All Files (*)")
@@ -1444,7 +2099,16 @@ class MainWindow(QMainWindow):
     def set_theme(self, theme: str, persist: bool = True) -> None:
         self.theme_manager.apply(theme)
         resolved_theme = self.theme_manager.current_theme
-        self.diagram.set_theme(self.theme_manager.current_spec.diagram_palette())
+        spec = self.theme_manager.current_spec
+        self.diagram.set_theme(spec.diagram_palette())
+        self.editor.set_search_theme(
+            match_background=spec.find_match_bg,
+            match_foreground=spec.find_match_fg,
+            current_background=spec.find_current_bg,
+            current_foreground=spec.find_current_fg,
+            marker=spec.find_marker,
+            current_marker=spec.find_current_marker,
+        )
         self.preferences.theme = resolved_theme
         for name, action in getattr(self, "theme_actions", {}).items():
             action.setChecked(name == resolved_theme)
@@ -1850,6 +2514,12 @@ class ThemeSpec:
     hover: str
     selected: str
     accent: str
+    find_match_bg: str
+    find_match_fg: str
+    find_current_bg: str
+    find_current_fg: str
+    find_marker: str
+    find_current_marker: str
     diagram_bg: str
     diagram_grid_minor: str
     diagram_grid_major: str
@@ -1884,6 +2554,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#252525",
         selected="#303030",
         accent="#8b9bb4",
+        find_match_bg="#59491f",
+        find_match_fg="#f4ead2",
+        find_current_bg="#b67d20",
+        find_current_fg="#111111",
+        find_marker="#c89b3c",
+        find_current_marker="#f2c45d",
         diagram_bg="#151515",
         diagram_grid_minor="#1d1d1d",
         diagram_grid_major="#292929",
@@ -1905,6 +2581,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#283142",
         selected="#33415a",
         accent="#5f86c9",
+        find_match_bg="#294a62",
+        find_match_fg="#edf6ff",
+        find_current_bg="#4d86b5",
+        find_current_fg="#ffffff",
+        find_marker="#5e93bd",
+        find_current_marker="#91c8f0",
         diagram_bg="#171c26",
         diagram_grid_minor="#202735",
         diagram_grid_major="#2d384b",
@@ -1926,6 +2608,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#32343a",
         selected="#3d424b",
         accent="#929aa8",
+        find_match_bg="#51492d",
+        find_match_fg="#f1ead2",
+        find_current_bg="#8c7836",
+        find_current_fg="#ffffff",
+        find_marker="#a68c3e",
+        find_current_marker="#d6b95d",
         diagram_bg="#222327",
         diagram_grid_minor="#292b30",
         diagram_grid_major="#383b42",
@@ -1947,6 +2635,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#eceef2",
         selected="#dfe7ff",
         accent="#60769f",
+        find_match_bg="#fff1a8",
+        find_match_fg="#2c2a20",
+        find_current_bg="#f4c34d",
+        find_current_fg="#1f1b10",
+        find_marker="#d9a72d",
+        find_current_marker="#b47a00",
         diagram_bg="#f7f8fa",
         diagram_grid_minor="#edf0f3",
         diagram_grid_major="#dde1e6",
@@ -1968,6 +2662,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#e1e5e8",
         selected="#d7e2eb",
         accent="#687f91",
+        find_match_bg="#dceaf3",
+        find_match_fg="#26333d",
+        find_current_bg="#92c4df",
+        find_current_fg="#182630",
+        find_marker="#72a8c4",
+        find_current_marker="#3e86aa",
         diagram_bg="#f1f3f4",
         diagram_grid_minor="#e5e8ea",
         diagram_grid_major="#d3d8dc",
@@ -1989,6 +2689,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#eee7db",
         selected="#e6dccb",
         accent="#8a7255",
+        find_match_bg="#f1dfb5",
+        find_match_fg="#3b3020",
+        find_current_bg="#d7ac61",
+        find_current_fg="#2a1e10",
+        find_marker="#b78b48",
+        find_current_marker="#8e6227",
         diagram_bg="#faf6ee",
         diagram_grid_minor="#eee8dc",
         diagram_grid_major="#ddd3c4",
@@ -2010,6 +2716,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#e1edf2",
         selected="#d3e6ef",
         accent="#5e8194",
+        find_match_bg="#d1e9f0",
+        find_match_fg="#24343c",
+        find_current_bg="#8bc2d2",
+        find_current_fg="#16303b",
+        find_marker="#6aa9bc",
+        find_current_marker="#3f8499",
         diagram_bg="#f3f8fa",
         diagram_grid_minor="#e5eff3",
         diagram_grid_major="#cfdee5",
@@ -2074,6 +2786,39 @@ QWidget#workspaceBar {{ background: {spec.surface}; border-bottom: 1px solid {sp
 QPushButton#workspaceButton {{ min-width: 78px; padding: 6px 12px; border: 0; border-radius: 5px; }}
 QPushButton#workspaceButton:checked {{ background: {spec.selected}; }}
 QComboBox#themePresetCombo {{ min-width: 142px; background: {spec.surface_alt}; }}
+QWidget#editorFindBar {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 8px;
+}}
+QLineEdit#editorFindInput {{
+    background: {spec.editor};
+    color: {spec.text};
+    border: 1px solid {spec.border};
+    border-radius: 5px;
+    padding: 5px 7px;
+}}
+QLabel#editorFindCount {{ color: {spec.muted}; }}
+QCheckBox#editorFindDirection {{ spacing: 4px; color: {spec.text}; }}
+QCheckBox#editorFindDirection::indicator {{
+    width: 12px; height: 12px;
+    border: 1px solid {spec.muted};
+    border-radius: 2px;
+    background: {spec.editor};
+}}
+QCheckBox#editorFindDirection::indicator:checked {{
+    background: {spec.accent};
+    border-color: {spec.accent};
+}}
+QPushButton#editorFindButton {{ padding: 5px 9px; background: {spec.surface_alt}; }}
+QPushButton#editorFindClose {{
+    padding: 3px;
+    border: 0;
+    background: transparent;
+    font-size: 17px;
+    font-weight: 600;
+}}
+QPushButton#editorFindClose:hover {{ background: {spec.hover}; }}
 """
 
 
@@ -3355,6 +4100,114 @@ class DiagramView(QWidget):
         self.scene.delete_selected()
 ````
 
+## `app/widgets/find_bar.py`
+
+````python
+from __future__ import annotations
+
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
+
+
+class FindLineEdit(QLineEdit):
+    escapePressed = Signal()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.escapePressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+class EditorFindBar(QWidget):
+    queryChanged = Signal(str)
+    findRequested = Signal(str)
+    closeRequested = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("editorFindBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(7, 6, 7, 6)
+        layout.setSpacing(6)
+
+        self.query_edit = FindLineEdit(self)
+        self.query_edit.setObjectName("editorFindInput")
+        self.query_edit.setPlaceholderText("Find in note…")
+        self.query_edit.setClearButtonEnabled(True)
+        self.query_edit.setMinimumWidth(180)
+        self.query_edit.setMaximumWidth(320)
+        self.query_edit.textChanged.connect(self.queryChanged)
+        self.query_edit.returnPressed.connect(self._emit_find)
+        self.query_edit.escapePressed.connect(self.closeRequested)
+        layout.addWidget(self.query_edit, 1)
+
+        self.result_label = QLabel("0 matches", self)
+        self.result_label.setObjectName("editorFindCount")
+        self.result_label.setMinimumWidth(68)
+        self.result_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.result_label)
+
+        self.down_checkbox = QCheckBox("↓ Down", self)
+        self.down_checkbox.setObjectName("editorFindDirection")
+        self.up_checkbox = QCheckBox("↑ Up", self)
+        self.up_checkbox.setObjectName("editorFindDirection")
+        self.direction_group = QButtonGroup(self)
+        self.direction_group.setExclusive(True)
+        self.direction_group.addButton(self.down_checkbox)
+        self.direction_group.addButton(self.up_checkbox)
+        self.down_checkbox.toggled.connect(self._ensure_direction_selected)
+        self.up_checkbox.toggled.connect(self._ensure_direction_selected)
+        self.down_checkbox.setChecked(True)
+        layout.addWidget(self.down_checkbox)
+        layout.addWidget(self.up_checkbox)
+
+        self.find_button = QPushButton("Find", self)
+        self.find_button.setObjectName("editorFindButton")
+        self.find_button.setToolTip("Find the next match in the selected direction (Enter)")
+        self.find_button.clicked.connect(self._emit_find)
+        layout.addWidget(self.find_button)
+
+        self.close_button = QPushButton("×", self)
+        self.close_button.setObjectName("editorFindClose")
+        self.close_button.setFixedWidth(30)
+        self.close_button.setToolTip("Close search (Esc)")
+        self.close_button.clicked.connect(self.closeRequested)
+        layout.addWidget(self.close_button)
+
+    def direction(self) -> str:
+        return "up" if self.up_checkbox.isChecked() else "down"
+
+    def set_query(self, text: str) -> None:
+        self.query_edit.setText(text)
+
+    def focus_query(self, select_all: bool = True) -> None:
+        self.query_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        if select_all:
+            self.query_edit.selectAll()
+
+    def set_result_count(self, count: int, active_index: int | None = None) -> None:
+        if count <= 0:
+            self.result_label.setText("0 matches")
+        elif active_index is None:
+            self.result_label.setText(f"{count} matches")
+        else:
+            self.result_label.setText(f"{active_index + 1} / {count}")
+
+    def _ensure_direction_selected(self, _checked: bool) -> None:
+        if not self.down_checkbox.isChecked() and not self.up_checkbox.isChecked():
+            self.down_checkbox.setChecked(True)
+
+    def _emit_find(self) -> None:
+        if self.query_edit.text():
+            self.findRequested.emit(self.direction())
+````
+
 ## `app/widgets/note_editor.py`
 
 ````python
@@ -3363,12 +4216,62 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QKeyEvent, QMouseEvent, QTextBlock, QTextCharFormat, QTextCursor, QTextListFormat
-from PySide6.QtWidgets import QMenu, QTextEdit
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QTextBlock,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+    QTextFormat,
+    QTextListFormat,
+)
+from PySide6.QtWidgets import QMenu, QScrollBar, QTextEdit
+
+from app.widgets.find_bar import EditorFindBar
 
 from app.constants import TAB_SPACES
 
 TASK_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<marker>☐|☑)(?: (?P<text>.*))?$")
+
+class SearchMarkerScrollBar(QScrollBar):
+    def __init__(self, orientation: Qt.Orientation, parent=None) -> None:
+        super().__init__(orientation, parent)
+        self._markers: list[float] = []
+        self._active_marker: float | None = None
+        self._marker_color = QColor("#d0a84b")
+        self._active_color = QColor("#f2cf70")
+
+    def set_markers(self, markers: list[float], active_marker: float | None = None) -> None:
+        self._markers = [max(0.0, min(1.0, marker)) for marker in markers]
+        self._active_marker = None if active_marker is None else max(0.0, min(1.0, active_marker))
+        self.update()
+
+    def set_marker_colors(self, marker: str, active: str) -> None:
+        self._marker_color = QColor(marker)
+        self._active_color = QColor(active)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.orientation() != Qt.Orientation.Vertical or not self._markers:
+            return
+        painter = QPainter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        top = 2
+        marker_height = 2
+        usable_height = max(1, self.height() - top * 2 - marker_height)
+        width = max(3, self.width() - 4)
+        for ratio in self._markers:
+            y = top + int(round(ratio * usable_height))
+            painter.fillRect(2, y, width, marker_height, self._marker_color)
+        if self._active_marker is not None:
+            y = top + int(round(self._active_marker * usable_height))
+            painter.fillRect(1, max(0, y - 1), max(4, self.width() - 2), 4, self._active_color)
 
 
 class NoteEditor(QTextEdit):
@@ -3385,9 +4288,207 @@ class NoteEditor(QTextEdit):
         self.setPlaceholderText("Write notes, tasks, bugs, ideas, or plans…")
         self.setTabChangesFocus(False)
         self.setMouseTracking(True)
+
+        self._search_query = ""
+        self._search_ranges: list[tuple[int, int]] = []
+        self._search_active_index: int | None = None
+        self._search_anchor_position = 0
+        self._search_match_background = QColor("#d9c36a")
+        self._search_match_foreground = QColor("#1a1a1a")
+        self._search_current_background = QColor("#f0b94d")
+        self._search_current_foreground = QColor("#111111")
+
+        self._search_scrollbar = SearchMarkerScrollBar(Qt.Orientation.Vertical, self)
+        self.setVerticalScrollBar(self._search_scrollbar)
+        self.find_bar = EditorFindBar(self)
+        self.find_bar.hide()
+        self.find_bar.queryChanged.connect(self._set_search_query)
+        self.find_bar.findRequested.connect(self.find_search_match)
+        self.find_bar.closeRequested.connect(self.hide_find_bar)
+        self.textChanged.connect(self._refresh_search_after_edit)
+
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(self.base_font_size)
         self.setFont(font)
+
+    def show_find_bar(self) -> None:
+        selected = self.textCursor().selectedText().replace("\u2029", "\n")
+        if selected and "\n" not in selected and len(selected) <= 160:
+            self.find_bar.set_query(selected)
+        self._search_anchor_position = self.textCursor().selectionEnd()
+        self.find_bar.show()
+        self.find_bar.raise_()
+        self._position_find_bar()
+        if self.find_bar.query_edit.text():
+            self._set_search_query(self.find_bar.query_edit.text())
+        self.find_bar.focus_query(select_all=True)
+
+    def hide_find_bar(self) -> None:
+        self.find_bar.hide()
+        self._search_query = ""
+        self._search_ranges.clear()
+        self._search_active_index = None
+        self.setExtraSelections([])
+        self._search_scrollbar.set_markers([])
+        self.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def is_find_bar_visible(self) -> bool:
+        return self.find_bar.isVisible()
+
+    def search_match_ranges(self) -> tuple[tuple[int, int], ...]:
+        return tuple(self._search_ranges)
+
+    def active_search_range(self) -> tuple[int, int] | None:
+        if self._search_active_index is None or not self._search_ranges:
+            return None
+        return self._search_ranges[self._search_active_index]
+
+    def set_search_theme(
+        self,
+        *,
+        match_background: str,
+        match_foreground: str,
+        current_background: str,
+        current_foreground: str,
+        marker: str,
+        current_marker: str,
+    ) -> None:
+        self._search_match_background = QColor(match_background)
+        self._search_match_foreground = QColor(match_foreground)
+        self._search_current_background = QColor(current_background)
+        self._search_current_foreground = QColor(current_foreground)
+        self._search_scrollbar.set_marker_colors(marker, current_marker)
+        self._render_search_highlights()
+
+    def find_search_match(self, direction: str = "down") -> bool:
+        if not self._search_ranges:
+            self.find_bar.set_result_count(0)
+            return False
+
+        direction = "up" if direction == "up" else "down"
+        if self._search_active_index is None:
+            self._search_active_index = self._initial_search_index(direction)
+        elif direction == "down":
+            self._search_active_index = (self._search_active_index + 1) % len(self._search_ranges)
+        else:
+            self._search_active_index = (self._search_active_index - 1) % len(self._search_ranges)
+
+        start, end = self._search_ranges[self._search_active_index]
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+        self.find_bar.set_result_count(len(self._search_ranges), self._search_active_index)
+        self._render_search_highlights()
+        return True
+
+    def _initial_search_index(self, direction: str) -> int:
+        anchor = max(0, min(self.document().characterCount() - 1, self._search_anchor_position))
+        if direction == "up":
+            for index in range(len(self._search_ranges) - 1, -1, -1):
+                start, end = self._search_ranges[index]
+                if end <= anchor:
+                    return index
+            return len(self._search_ranges) - 1
+        for index, (start, _end) in enumerate(self._search_ranges):
+            if start >= anchor:
+                return index
+        return 0
+
+    def _set_search_query(self, query: str) -> None:
+        self._search_query = query
+        self._search_active_index = None
+        self._search_anchor_position = self.textCursor().selectionEnd()
+        self._collect_search_matches()
+        self.find_bar.set_result_count(len(self._search_ranges))
+        self._render_search_highlights()
+
+    def _refresh_search_after_edit(self) -> None:
+        if not self._search_query:
+            return
+        active_start = None
+        if self._search_active_index is not None and self._search_ranges:
+            active_start = self._search_ranges[self._search_active_index][0]
+        self._collect_search_matches()
+        self._search_active_index = None
+        if active_start is not None and self._search_ranges:
+            nearest = min(range(len(self._search_ranges)), key=lambda index: abs(self._search_ranges[index][0] - active_start))
+            self._search_active_index = nearest
+        self.find_bar.set_result_count(len(self._search_ranges), self._search_active_index)
+        self._render_search_highlights()
+
+    def _collect_search_matches(self) -> None:
+        self._search_ranges.clear()
+        query = self._search_query
+        if not query:
+            return
+        document = self.document()
+        cursor = QTextCursor(document)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        while True:
+            match = document.find(query, cursor)
+            if match.isNull() or not match.hasSelection():
+                break
+            start = match.selectionStart()
+            end = match.selectionEnd()
+            if end <= start:
+                break
+            self._search_ranges.append((start, end))
+            cursor.setPosition(end)
+
+    def _render_search_highlights(self) -> None:
+        selections: list[QTextEdit.ExtraSelection] = []
+        for index, (start, end) in enumerate(self._search_ranges):
+            selection = QTextEdit.ExtraSelection()
+            cursor = QTextCursor(self.document())
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            selection.cursor = cursor
+            if index == self._search_active_index:
+                selection.format.setBackground(self._search_current_background)
+                selection.format.setForeground(self._search_current_foreground)
+            else:
+                selection.format.setBackground(self._search_match_background)
+                selection.format.setForeground(self._search_match_foreground)
+            selection.format.setProperty(QTextFormat.Property.FullWidthSelection, False)
+            selections.append(selection)
+        self.setExtraSelections(selections)
+        marker_positions = [self._search_marker_ratio(start) for start, _end in self._search_ranges]
+        active_marker = None
+        if self._search_active_index is not None and self._search_ranges:
+            active_marker = marker_positions[self._search_active_index]
+        self._search_scrollbar.set_markers(marker_positions, active_marker)
+
+    def _search_marker_ratio(self, position: int) -> float:
+        document = self.document()
+        document_height = max(1.0, document.size().height())
+        cursor = QTextCursor(document)
+        cursor.setPosition(max(0, min(position, document.characterCount() - 1)))
+        block = cursor.block()
+        layout = block.layout()
+        block_rect = document.documentLayout().blockBoundingRect(block)
+        line = layout.lineForTextPosition(cursor.positionInBlock()) if layout is not None else None
+        y = block_rect.top()
+        if line is not None and line.isValid():
+            y += line.y() + line.height() / 2.0
+        return max(0.0, min(1.0, y / document_height))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_find_bar()
+
+    def _position_find_bar(self) -> None:
+        if not self.find_bar.isVisible():
+            return
+        self.find_bar.adjustSize()
+        available_width = max(260, self.viewport().width() - 18)
+        width = min(max(self.find_bar.sizeHint().width(), 520), available_width)
+        self.find_bar.resize(width, self.find_bar.sizeHint().height())
+        x = max(6, self.viewport().geometry().right() - width - 6)
+        y = self.viewport().geometry().top() + 6
+        self.find_bar.move(x, y)
+        self.find_bar.raise_()
 
     def set_editor_font_size(self, size: int) -> None:
         self.base_font_size = max(8, min(32, size))
@@ -3960,79 +5061,6 @@ if ($OneFile) {
 Write-Host "User notes remain in Windows AppData, not beside the executable."
 ````
 
-## `DevNest.spec`
-
-````python
-# -*- mode: python ; coding: utf-8 -*-
-import argparse
-from pathlib import Path
-
-parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument("--onefile", action="store_true")
-options, _unknown = parser.parse_known_args()
-
-project_root = Path(SPECPATH)
-
-a = Analysis(
-    [str(project_root / "main.py")],
-    pathex=[str(project_root)],
-    binaries=[],
-    datas=[(str(project_root / "resources"), "resources")],
-    hiddenimports=["PySide6.QtSvg"],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=1,
-)
-pyz = PYZ(a.pure)
-
-common = dict(
-    name="DevNest",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=str(project_root / "resources" / "devnest.ico"),
-)
-
-if options.onefile:
-    exe = EXE(
-        pyz,
-        a.scripts,
-        a.binaries,
-        a.datas,
-        [],
-        upx_exclude=[],
-        runtime_tmpdir=None,
-        **common,
-    )
-else:
-    exe = EXE(
-        pyz,
-        a.scripts,
-        [],
-        exclude_binaries=True,
-        **common,
-    )
-    coll = COLLECT(
-        exe,
-        a.binaries,
-        a.datas,
-        strip=False,
-        upx=True,
-        upx_exclude=[],
-        name="DevNest",
-    )
-````
-
 ## `main.py`
 
 ````python
@@ -4092,577 +5120,6 @@ if __name__ == "__main__":
 [pytest]
 pythonpath = .
 testpaths = tests
-````
-
-## `README.md`
-
-````markdown
-<p align="center">
-  <img src="resources/devnest.svg" alt="DevNest" width="96" height="96">
-</p>
-
-<h1 align="center">DevNest</h1>
-
-<p align="center">
-  <strong>Notes, tasks and lightweight diagrams for developers.</strong><br>
-  Native desktop app for Windows · Offline-first · No account · No telemetry
-</p>
-
-<p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-2f81f7?style=flat-square">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
-  <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
-  <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
-  <img alt="Offline" src="https://img.shields.io/badge/offline-ready-555?style=flat-square">
-</p>
-
-<p align="center">
-  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
-    <strong>⬇ Download DevNest.exe</strong>
-  </a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest">Latest Release</a>
-  &nbsp;·&nbsp;
-  <a href="#turkce">Türkçe</a>
-  &nbsp;·&nbsp;
-  <a href="#english">English</a>
-</p>
-
-> **Windows users:** If you only want to use the application, you do not need to install the source code. Download `DevNest.exe` using the **Download DevNest.exe** button above and run it directly.
->
-> **Windows kullanıcıları:** Sadece programı kullanmak istiyorsanız kaynak kodu kurmanıza gerek yok. Yukarıdaki **Download DevNest.exe** bağlantısından `DevNest.exe` dosyasını indirip doğrudan çalıştırabilirsiniz.
-
----
-
-<a id="turkce"></a>
-
-# 🇹🇷 Türkçe
-
-## DevNest nedir?
-
-DevNest; notlarını, yapılacak işlerini, teknik fikirlerini ve küçük yazılım diyagramlarını tek yerde tutmak isteyen geliştiriciler için hazırlanmış native bir masaüstü uygulamasıdır.
-
-Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya göndermez. Veriler yerel SQLite veritabanında saklanır; arayüz PySide6 / Qt ile çalışır.
-
-### Öne çıkan özellikler
-
-| Alan | Özellikler |
-|---|---|
-| **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
-| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
-| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
-| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
-| **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
-| **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
-| **Veri güvenliği** | Autosave, Trash, Restore, kalıcı silme, SQLite `VACUUM` |
-| **Gizlilik** | Offline çalışma, login yok, telemetry yok, zorunlu cloud servisi yok |
-
-## Hızlı indirme
-
-Kaynak kodla uğraşmadan yalnızca uygulamayı kullanmak istiyorsanız hazır Windows executable dosyasını indirebilirsiniz:
-
-<p align="center">
-  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
-    <strong>⬇ DevNest.exe indir</strong>
-  </a>
-</p>
-
-Bu bağlantı repository içindeki büyük binary dosya önizleme sayfasına değil, GitHub Releases üzerindeki en güncel `DevNest.exe` dosyasına gider.
-
-> PyInstaller build'i gerekli Python runtime ve Qt bileşenlerini paketler. Hedef Windows bilgisayarda ayrıca Python veya PySide6 kurulu olması gerekmez.
-
-## Checkbox kullanımı
-
-Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> kullanabilirsiniz.
-
-```text
-☐ API endpointlerini hazırla
-☐ Database bağlantısını oluştur
-☑ Login ekranını tamamla
-```
-
-İşaretlenen görevlerin metni otomatik olarak üstü çizili hale gelir. İşaret kaldırıldığında strikethrough da kaldırılır.
-
-**Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
-
-## TXT içe / dışa aktarma
-
-DevNest aşağıdaki biçimlerin tamamını tanır:
-
-```text
-[ ] Backend
-[x] Database
-[X] Authentication
-☐ Frontend
-☑ Login
-✓ Deploy
-```
-
-Dışa aktarılan checklist'ler taşınabilir bir biçimde yazılır:
-
-```text
-[ ] Backend
-    [ ] API
-    [x] Database
-```
-
-TXT formatı bold / italic gibi rich-text özelliklerini taşımaz. Bu biçimler uygulamanın SQLite veritabanındaki native not içeriğinde korunur.
-
-## Diagram kullanımı
-
-Diagram alanı her not için ayrı saklanır.
-
-- **Square** — sol mouse tuşuna basılı tutup sürükleyerek istediğiniz genişlik ve yükseklikte kutu oluşturur.
-- **Round** — yuvarlatılmış dikdörtgen oluşturur.
-- **Ellipse** — elips / oval oluşturur.
-- **Diamond** — karar / akış diyagramı şekli oluşturur.
-- **Text** — bağımsız metin öğesi ekler.
-- **Connect** — bir nesnenin üzerinde başlayıp başka bir nesnenin üzerinde biten yönlü bağlantı çizer.
-- **Select** — nesneleri taşır; seçilen shape'in kenar ve köşe tutamaçlarıyla boyutunu değiştirir.
-- **Orta mouse tuşu + sürükleme** — aktif araçtan bağımsız olarak canvas üzerinde gezinir.
-- **Mouse wheel** — zoom yapar.
-
-Connector yalnızca geçerli bir nesneden başlayıp başka bir geçerli nesnede bitebilir. Boş canvas'a bırakılan bağlantı kaydedilmez. Ok başı bağlantının yönünü gösterir.
-
-## Temalar
-
-DevNest farklı çalışma ortamlarına uygun tema seçenekleri sunar.
-
-### Dark
-
-- Matte Black
-- Midnight Slate
-- Graphite
-
-### Light
-
-- Clean Light
-- Soft Gray
-- Warm Paper
-- Cool Mist
-
-### System
-
-İşletim sisteminin renk tercihine göre görünüm uygular.
-
-Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri yüklenir.
-
-## Klavye kısayolları
-
-| İşlem | Kısayol |
-|---|---|
-| Yeni not | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
-| Not içinde bul | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
-| Geri al | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
-| Yinele | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
-| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
-| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
-| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
-| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
-| TXT export | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
-| Sidebar aç / kapat | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
-| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
-| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
-| Diagram öğesini çoğalt | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
-| Seçili diagram öğesini sil | <kbd>Delete</kbd> |
-
-## Kaynak koddan çalıştırma
-
-### Gereksinimler
-
-- Windows 10 / 11
-- Python 3.12+
-- PowerShell
-
-Repository'yi indirdikten sonra proje klasöründe PowerShell açın.
-
-```powershell
-python --version
-```
-
-Virtual environment oluşturun:
-
-```powershell
-python -m venv .venv
-```
-
-Aktifleştirin:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-PowerShell izin vermezse yalnızca mevcut terminal oturumu için:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-Bağımlılıkları kurun:
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Testleri çalıştırın:
-
-```powershell
-python -m pytest -q
-```
-
-Uygulamayı başlatın:
-
-```powershell
-python main.py
-```
-
-## Windows EXE oluşturma
-
-Projede hazır `build.ps1` ve `DevNest.spec` bulunur.
-
-### Klasörlü build
-
-Geliştirme ve ilk dağıtım testi için:
-
-```powershell
-.\build.ps1
-```
-
-Çıktı:
-
-```text
-dist\DevNest\DevNest.exe
-```
-
-Bu build tipinde `dist\DevNest` klasörünün tamamını dağıtmanız gerekir.
-
-### Tek dosya EXE
-
-Tek `DevNest.exe` üretmek için:
-
-```powershell
-.\build.ps1 -OneFile
-```
-
-Çıktı:
-
-```text
-dist\DevNest.exe
-```
-
-GitHub Releases'a yüklenecek dosya bu tek dosyalık build olabilir.
-
-## GitHub Release yayınlama
-
-Yeni bir sürüm yayınlarken:
-
-1. GitHub repository sayfasında **Releases** bölümünü açın.
-2. **Draft a new release** seçin.
-3. Örneğin `v1.2.4` şeklinde bir tag oluşturun.
-4. Release başlığını örneğin `DevNest 1.2.4` yapın.
-5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
-6. Release'i yayınlayın.
-
-README'deki indirme bağlantısı:
-
-```text
-https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
-```
-
-olduğu için sonraki sürümlerde README bağlantısını değiştirmeniz gerekmez. Release asset adı `DevNest.exe` olarak kaldığı sürece buton en güncel release dosyasını indirir.
-
-## Veriler nerede saklanıyor?
-
-DevNest kullanıcı verisini executable'ın yanına yazmak zorunda değildir. SQLite veritabanı Qt'nin application-data konumunda tutulur.
-
-Kesin veritabanı yolunu **Help → About DevNest** ekranında görebilirsiniz.
-
-Loglar aynı application-data alanındaki `logs` klasöründe tutulur.
-
-### Yedekleme
-
-Yedek almadan önce DevNest'i kapatın ve `devnest.db` dosyasını güvenli bir konuma kopyalayın.
-
-### Windows SmartScreen
-
-İmzalanmamış yeni executable dosyalarında Windows SmartScreen uyarısı görülebilir. Uygulamayı geniş çapta dağıtacaksanız `DevNest.exe` dosyasını bir code-signing sertifikasıyla imzalamak daha profesyonel bir dağıtım sağlar.
-
----
-
-<a id="english"></a>
-
-# 🇬🇧 English
-
-## What is DevNest?
-
-DevNest is a native desktop workspace for developers who want notes, checklists, technical ideas and lightweight software diagrams in one place.
-
-It does not require a browser, an account or a network connection. Notes stay on your machine in a local SQLite database, while the interface is built with PySide6 / Qt.
-
-### Highlights
-
-| Area | Features |
-|---|---|
-| **Notes** | Fast note creation, search, rename, duplicate and sorting |
-| **Editor** | Bold, italic, underline, strikethrough, lists, font / size / weight controls; checkbox and list markers follow font formatting |
-| **Tasks** | Clickable `☐ / ☑` items, automatic strikethrough, Auto Checkbox and nested tasks |
-| **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` detection with UTF-8 import/export |
-| **Diagrams** | Drag-to-size shapes, text, directional connectors, zoom, pan and resize |
-| **Themes** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist and System |
-| **Data safety** | Autosave, Trash, Restore, permanent delete and SQLite `VACUUM` |
-| **Privacy** | Offline operation, no login, no telemetry and no mandatory cloud service |
-
-## Quick download
-
-If you only want to use DevNest and do not need the source code, download the ready-to-run Windows executable:
-
-<p align="center">
-  <a href="https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe">
-    <strong>⬇ Download DevNest.exe</strong>
-  </a>
-</p>
-
-This link goes directly to the latest `DevNest.exe` asset published under GitHub Releases instead of opening GitHub's large binary file preview page.
-
-> The PyInstaller build bundles the required Python runtime and Qt components. Python and PySide6 do not need to be installed separately on the target Windows machine.
-
-## Checklists
-
-Use the checkbox toolbar action or <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> to turn a line into a task.
-
-```text
-☐ Prepare API endpoints
-☐ Create database connection
-☑ Finish login screen
-```
-
-Completed tasks are struck through automatically. Unchecking a task removes the strikethrough.
-
-With **Auto Checkbox** enabled, pressing <kbd>Enter</kbd> after a non-empty task creates another task with the same indentation. Pressing <kbd>Enter</kbd> on an empty task exits checklist mode. Use <kbd>Tab</kbd> and <kbd>Shift</kbd> + <kbd>Tab</kbd> for nesting.
-
-## TXT import / export
-
-DevNest recognizes all of the following forms:
-
-```text
-[ ] Backend
-[x] Database
-[X] Authentication
-☐ Frontend
-☑ Login
-✓ Deploy
-```
-
-Portable TXT export uses:
-
-```text
-[ ] Backend
-    [ ] API
-    [x] Database
-```
-
-TXT cannot retain rich formatting such as bold or italic. DevNest keeps the native rich-text version in SQLite so formatting remains intact inside the application.
-
-## Diagrams
-
-Each note has its own diagram workspace.
-
-- **Square** — press and drag to create a box at the exact width and height you want.
-- **Round** — create a rounded rectangle.
-- **Ellipse** — create an ellipse / oval.
-- **Diamond** — create a decision / flowchart shape.
-- **Text** — add a standalone text element.
-- **Connect** — draw a directional connection from one existing object to another.
-- **Select** — move objects and resize selected shapes using edge and corner handles.
-- **Middle mouse button + drag** — pan the canvas regardless of the active tool.
-- **Mouse wheel** — zoom.
-
-A connector must start on a valid object and end on a different valid object. Connections released onto empty canvas are discarded. The arrowhead marks the target direction.
-
-## Themes
-
-DevNest includes several appearance presets for different environments.
-
-### Dark
-
-- Matte Black
-- Midnight Slate
-- Graphite
-
-### Light
-
-- Clean Light
-- Soft Gray
-- Warm Paper
-- Cool Mist
-
-### System
-
-Follows the operating system color preference.
-
-The selected theme is stored with QSettings and restored on the next launch.
-
-## Keyboard shortcuts
-
-| Action | Shortcut |
-|---|---|
-| New note | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
-| Find in note | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
-| Undo | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
-| Redo | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
-| Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
-| Italic | <kbd>Ctrl</kbd> + <kbd>I</kbd> |
-| Underline | <kbd>Ctrl</kbd> + <kbd>U</kbd> |
-| Checkbox | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>X</kbd> |
-| Export TXT | <kbd>Ctrl</kbd> + <kbd>E</kbd> |
-| Toggle sidebar | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> |
-| Editor | <kbd>Ctrl</kbd> + <kbd>1</kbd> |
-| Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
-| Duplicate diagram item | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
-| Delete selected diagram item | <kbd>Delete</kbd> |
-
-## Run from source
-
-### Requirements
-
-- Windows 10 / 11
-- Python 3.12+
-- PowerShell
-
-Open PowerShell in the project directory and verify Python:
-
-```powershell
-python --version
-```
-
-Create a virtual environment:
-
-```powershell
-python -m venv .venv
-```
-
-Activate it:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-If PowerShell blocks script activation for the current session:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\.venv\Scripts\Activate.ps1
-```
-
-Install dependencies:
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Run the test suite:
-
-```powershell
-python -m pytest -q
-```
-
-Start DevNest:
-
-```powershell
-python main.py
-```
-
-## Build a Windows executable
-
-The repository includes `build.ps1` and `DevNest.spec`.
-
-### Folder build
-
-Recommended for development and initial distribution testing:
-
-```powershell
-.\build.ps1
-```
-
-Output:
-
-```text
-dist\DevNest\DevNest.exe
-```
-
-Distribute the complete `dist\DevNest` directory when using this mode.
-
-### Single-file EXE
-
-To create one standalone executable:
-
-```powershell
-.\build.ps1 -OneFile
-```
-
-Output:
-
-```text
-dist\DevNest.exe
-```
-
-This single-file build can be uploaded as the GitHub Release asset.
-
-## Publishing a GitHub Release
-
-When publishing a new version:
-
-1. Open **Releases** in the GitHub repository.
-2. Select **Draft a new release**.
-3. Create a tag such as `v1.2.4`.
-4. Use a release title such as `DevNest 1.2.4`.
-5. Upload `dist\DevNest.exe` as a release asset.
-6. Publish the release.
-
-The README download button points to:
-
-```text
-https://github.com/Onur-Aba/notepad-for-developers/releases/latest/download/DevNest.exe
-```
-
-As long as the release asset remains named `DevNest.exe`, the README button automatically downloads the executable from the latest published release. You do not need to update the README link for every version.
-
-## Where is the data stored?
-
-DevNest does not require user data to be stored next to the executable. The SQLite database is stored under Qt's application-data location for the current Windows user.
-
-The exact database path is shown under **Help → About DevNest**.
-
-Log files are stored in the `logs` directory inside the same application-data area.
-
-### Backup
-
-Close DevNest before creating a backup, then copy `devnest.db` to a safe location.
-
-### Windows SmartScreen
-
-Windows SmartScreen may warn about a newly distributed unsigned executable. If DevNest is distributed publicly, signing `DevNest.exe` with a code-signing certificate provides a more professional Windows distribution experience.
-
----
-
-## Technology
-
-```text
-Python 3.12+
-PySide6 / Qt 6
-SQLite
-QSettings
-PyInstaller
-```
-
-DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
-
-<p align="center">
-  <sub>DevNest 1.2.4 · Native desktop workspace for everyday development notes and planning.</sub>
-</p>
 ````
 
 ## `requirements.txt`
@@ -5107,6 +5564,82 @@ def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
     editor.setTextCursor(cursor)
     QTest.keyClick(editor, Qt.Key.Key_Return)
     assert editor.toPlainText() == "☐ Backend\n\n☐ "
+
+
+def test_inline_find_highlights_all_matches_and_advances_down(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git one\ngit two\nGIT three")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    editor.setTextCursor(cursor)
+
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+
+    ranges = editor.search_match_ranges()
+    assert len(ranges) == 3
+    assert len(editor.extraSelections()) == 3
+    assert editor.active_search_range() is None
+
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[0]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[1]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[2]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[0]
+
+
+def test_inline_find_advances_up_and_direction_boxes_are_exclusive(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git one\ngit two\ngit three")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+    assert editor.find_bar.down_checkbox.isChecked() is True
+    assert editor.find_bar.up_checkbox.isChecked() is False
+
+    editor.find_bar.up_checkbox.click()
+    assert editor.find_bar.up_checkbox.isChecked() is True
+    assert editor.find_bar.down_checkbox.isChecked() is False
+
+    ranges = editor.search_match_ranges()
+    assert editor.find_search_match("up") is True
+    assert editor.active_search_range() == ranges[-1]
+    assert editor.find_search_match("up") is True
+    assert editor.active_search_range() == ranges[-2]
+
+    editor.find_bar.down_checkbox.click()
+    assert editor.find_bar.down_checkbox.isChecked() is True
+    assert editor.find_bar.up_checkbox.isChecked() is False
+
+
+def test_inline_find_scrollbar_receives_one_marker_per_match(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("alpha\n" * 30 + "needle\n" + "beta\n" * 30 + "needle\n")
+    editor.show_find_bar()
+    editor.find_bar.set_query("needle")
+
+    assert len(editor.search_match_ranges()) == 2
+    assert len(editor._search_scrollbar._markers) == 2
+    assert all(0.0 <= marker <= 1.0 for marker in editor._search_scrollbar._markers)
+
+
+def test_inline_find_close_clears_highlights(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git git")
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+    assert len(editor.extraSelections()) == 2
+
+    editor.hide_find_bar()
+    assert editor.is_find_bar_visible() is False
+    assert editor.extraSelections() == []
+    assert editor.search_match_ranges() == ()
 ````
 
 ## `tests/test_settings.py`
@@ -5253,6 +5786,5 @@ from app.constants import VERSION
 
 
 def test_version_is_single_source() -> None:
-    assert VERSION == "1.2.4"
+    assert VERSION == "1.2.5"
 ````
-

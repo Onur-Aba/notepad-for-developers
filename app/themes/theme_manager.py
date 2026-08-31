@@ -22,6 +22,12 @@ class ThemeSpec:
     hover: str
     selected: str
     accent: str
+    find_match_bg: str
+    find_match_fg: str
+    find_current_bg: str
+    find_current_fg: str
+    find_marker: str
+    find_current_marker: str
     diagram_bg: str
     diagram_grid_minor: str
     diagram_grid_major: str
@@ -56,6 +62,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#252525",
         selected="#303030",
         accent="#8b9bb4",
+        find_match_bg="#59491f",
+        find_match_fg="#f4ead2",
+        find_current_bg="#b67d20",
+        find_current_fg="#111111",
+        find_marker="#c89b3c",
+        find_current_marker="#f2c45d",
         diagram_bg="#151515",
         diagram_grid_minor="#1d1d1d",
         diagram_grid_major="#292929",
@@ -77,6 +89,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#283142",
         selected="#33415a",
         accent="#5f86c9",
+        find_match_bg="#294a62",
+        find_match_fg="#edf6ff",
+        find_current_bg="#4d86b5",
+        find_current_fg="#ffffff",
+        find_marker="#5e93bd",
+        find_current_marker="#91c8f0",
         diagram_bg="#171c26",
         diagram_grid_minor="#202735",
         diagram_grid_major="#2d384b",
@@ -98,6 +116,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#32343a",
         selected="#3d424b",
         accent="#929aa8",
+        find_match_bg="#51492d",
+        find_match_fg="#f1ead2",
+        find_current_bg="#8c7836",
+        find_current_fg="#ffffff",
+        find_marker="#a68c3e",
+        find_current_marker="#d6b95d",
         diagram_bg="#222327",
         diagram_grid_minor="#292b30",
         diagram_grid_major="#383b42",
@@ -119,6 +143,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#eceef2",
         selected="#dfe7ff",
         accent="#60769f",
+        find_match_bg="#fff1a8",
+        find_match_fg="#2c2a20",
+        find_current_bg="#f4c34d",
+        find_current_fg="#1f1b10",
+        find_marker="#d9a72d",
+        find_current_marker="#b47a00",
         diagram_bg="#f7f8fa",
         diagram_grid_minor="#edf0f3",
         diagram_grid_major="#dde1e6",
@@ -140,6 +170,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#e1e5e8",
         selected="#d7e2eb",
         accent="#687f91",
+        find_match_bg="#dceaf3",
+        find_match_fg="#26333d",
+        find_current_bg="#92c4df",
+        find_current_fg="#182630",
+        find_marker="#72a8c4",
+        find_current_marker="#3e86aa",
         diagram_bg="#f1f3f4",
         diagram_grid_minor="#e5e8ea",
         diagram_grid_major="#d3d8dc",
@@ -161,6 +197,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#eee7db",
         selected="#e6dccb",
         accent="#8a7255",
+        find_match_bg="#f1dfb5",
+        find_match_fg="#3b3020",
+        find_current_bg="#d7ac61",
+        find_current_fg="#2a1e10",
+        find_marker="#b78b48",
+        find_current_marker="#8e6227",
         diagram_bg="#faf6ee",
         diagram_grid_minor="#eee8dc",
         diagram_grid_major="#ddd3c4",
@@ -182,6 +224,12 @@ THEME_SPECS: dict[str, ThemeSpec] = {
         hover="#e1edf2",
         selected="#d3e6ef",
         accent="#5e8194",
+        find_match_bg="#d1e9f0",
+        find_match_fg="#24343c",
+        find_current_bg="#8bc2d2",
+        find_current_fg="#16303b",
+        find_marker="#6aa9bc",
+        find_current_marker="#3f8499",
         diagram_bg="#f3f8fa",
         diagram_grid_minor="#e5eff3",
         diagram_grid_major="#cfdee5",
@@ -246,6 +294,39 @@ QWidget#workspaceBar {{ background: {spec.surface}; border-bottom: 1px solid {sp
 QPushButton#workspaceButton {{ min-width: 78px; padding: 6px 12px; border: 0; border-radius: 5px; }}
 QPushButton#workspaceButton:checked {{ background: {spec.selected}; }}
 QComboBox#themePresetCombo {{ min-width: 142px; background: {spec.surface_alt}; }}
+QWidget#editorFindBar {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 8px;
+}}
+QLineEdit#editorFindInput {{
+    background: {spec.editor};
+    color: {spec.text};
+    border: 1px solid {spec.border};
+    border-radius: 5px;
+    padding: 5px 7px;
+}}
+QLabel#editorFindCount {{ color: {spec.muted}; }}
+QCheckBox#editorFindDirection {{ spacing: 4px; color: {spec.text}; }}
+QCheckBox#editorFindDirection::indicator {{
+    width: 12px; height: 12px;
+    border: 1px solid {spec.muted};
+    border-radius: 2px;
+    background: {spec.editor};
+}}
+QCheckBox#editorFindDirection::indicator:checked {{
+    background: {spec.accent};
+    border-color: {spec.accent};
+}}
+QPushButton#editorFindButton {{ padding: 5px 9px; background: {spec.surface_alt}; }}
+QPushButton#editorFindClose {{
+    padding: 3px;
+    border: 0;
+    background: transparent;
+    font-size: 17px;
+    font-weight: 600;
+}}
+QPushButton#editorFindClose:hover {{ background: {spec.hover}; }}
 """
 
 

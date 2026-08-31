@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.4-2f81f7?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.2.5-2f81f7?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
@@ -153,7 +153,7 @@ Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri 
 | İşlem | Kısayol |
 |---|---|
 | Yeni not | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
-| Not içinde bul | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Not içinde bul (editör içi arama, tüm eşleşmeler vurgulanır) | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
 | Geri al | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
 | Yinele | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
 | Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
@@ -166,6 +166,15 @@ Seçilen tema QSettings ile kaydedilir ve uygulama tekrar açıldığında geri 
 | Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
 | Diagram öğesini çoğalt | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
 | Seçili diagram öğesini sil | <kbd>Delete</kbd> |
+
+
+### Editör içi arama
+
+`Ctrl+F` ayrı bir pencere açmak yerine editörün sağ üstünde arama çubuğunu gösterir. Yazarken bütün eşleşmeler anında vurgulanır. **Down** veya **Up** yönlerinden yalnızca biri seçilebilir; **Find** veya Enter ile aynı sorgunun sonraki/önceki eşleşmesine geçilir. Uzun notlarda eşleşme konumları dikey scrollbar üzerinde de aktif temaya uygun küçük işaretlerle gösterilir.
+
+- Aynı sorguda tekrar Find kullanmak aynı eşleşmede kalmaz; seçilen yönde ilerler.
+- Arama varsayılan olarak büyük/küçük harf duyarsızdır.
+- Esc veya × ile kapatıldığında geçici vurgular temizlenir.
 
 ## Kaynak koddan çalıştırma
 
@@ -261,8 +270,8 @@ Yeni bir sürüm yayınlarken:
 
 1. GitHub repository sayfasında **Releases** bölümünü açın.
 2. **Draft a new release** seçin.
-3. Örneğin `v1.2.4` şeklinde bir tag oluşturun.
-4. Release başlığını örneğin `DevNest 1.2.4` yapın.
+3. Örneğin `v1.2.5` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 1.2.5` yapın.
 5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
 6. Release'i yayınlayın.
 
@@ -410,7 +419,7 @@ The selected theme is stored with QSettings and restored on the next launch.
 | Action | Shortcut |
 |---|---|
 | New note | <kbd>Ctrl</kbd> + <kbd>N</kbd> |
-| Find in note | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
+| Find in note (inline bar, all matches highlighted) | <kbd>Ctrl</kbd> + <kbd>F</kbd> |
 | Undo | <kbd>Ctrl</kbd> + <kbd>Z</kbd> |
 | Redo | <kbd>Ctrl</kbd> + <kbd>Y</kbd> |
 | Bold | <kbd>Ctrl</kbd> + <kbd>B</kbd> |
@@ -423,6 +432,16 @@ The selected theme is stored with QSettings and restored on the next launch.
 | Diagram | <kbd>Ctrl</kbd> + <kbd>2</kbd> |
 | Duplicate diagram item | <kbd>Ctrl</kbd> + <kbd>D</kbd> |
 | Delete selected diagram item | <kbd>Delete</kbd> |
+
+
+### Inline Find
+
+`Ctrl+F` opens a search bar inside the editor instead of a dialog. Matches are highlighted as you type. Choose **Down** or **Up** (mutually exclusive), then press **Find** or Enter to move to the next match in that direction. Long notes also show theme-aware match markers on the vertical scrollbar.
+
+- The first query highlights every match immediately.
+- Repeating Find advances to the next/previous occurrence instead of selecting the same one again.
+- Search is case-insensitive by default.
+- Esc or the × button closes the bar and clears temporary highlights.
 
 ## Run from source
 
@@ -518,8 +537,8 @@ When publishing a new version:
 
 1. Open **Releases** in the GitHub repository.
 2. Select **Draft a new release**.
-3. Create a tag such as `v1.2.4`.
-4. Use a release title such as `DevNest 1.2.4`.
+3. Create a tag such as `v1.2.5`.
+4. Use a release title such as `DevNest 1.2.5`.
 5. Upload `dist\DevNest.exe` as a release asset.
 6. Publish the release.
 
@@ -562,5 +581,5 @@ PyInstaller
 DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
 
 <p align="center">
-  <sub>DevNest 1.2.4 · Native desktop workspace for everyday development notes and planning.</sub>
+  <sub>DevNest 1.2.5 · Native desktop workspace for everyday development notes and planning.</sub>
 </p>

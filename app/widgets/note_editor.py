@@ -3,12 +3,62 @@ from __future__ import annotations
 import re
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QFontDatabase, QKeyEvent, QMouseEvent, QTextBlock, QTextCharFormat, QTextCursor, QTextListFormat
-from PySide6.QtWidgets import QMenu, QTextEdit
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontDatabase,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QTextBlock,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+    QTextFormat,
+    QTextListFormat,
+)
+from PySide6.QtWidgets import QMenu, QScrollBar, QTextEdit
+
+from app.widgets.find_bar import EditorFindBar
 
 from app.constants import TAB_SPACES
 
 TASK_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<marker>☐|☑)(?: (?P<text>.*))?$")
+
+class SearchMarkerScrollBar(QScrollBar):
+    def __init__(self, orientation: Qt.Orientation, parent=None) -> None:
+        super().__init__(orientation, parent)
+        self._markers: list[float] = []
+        self._active_marker: float | None = None
+        self._marker_color = QColor("#d0a84b")
+        self._active_color = QColor("#f2cf70")
+
+    def set_markers(self, markers: list[float], active_marker: float | None = None) -> None:
+        self._markers = [max(0.0, min(1.0, marker)) for marker in markers]
+        self._active_marker = None if active_marker is None else max(0.0, min(1.0, active_marker))
+        self.update()
+
+    def set_marker_colors(self, marker: str, active: str) -> None:
+        self._marker_color = QColor(marker)
+        self._active_color = QColor(active)
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self.orientation() != Qt.Orientation.Vertical or not self._markers:
+            return
+        painter = QPainter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        top = 2
+        marker_height = 2
+        usable_height = max(1, self.height() - top * 2 - marker_height)
+        width = max(3, self.width() - 4)
+        for ratio in self._markers:
+            y = top + int(round(ratio * usable_height))
+            painter.fillRect(2, y, width, marker_height, self._marker_color)
+        if self._active_marker is not None:
+            y = top + int(round(self._active_marker * usable_height))
+            painter.fillRect(1, max(0, y - 1), max(4, self.width() - 2), 4, self._active_color)
 
 
 class NoteEditor(QTextEdit):
@@ -25,9 +75,207 @@ class NoteEditor(QTextEdit):
         self.setPlaceholderText("Write notes, tasks, bugs, ideas, or plans…")
         self.setTabChangesFocus(False)
         self.setMouseTracking(True)
+
+        self._search_query = ""
+        self._search_ranges: list[tuple[int, int]] = []
+        self._search_active_index: int | None = None
+        self._search_anchor_position = 0
+        self._search_match_background = QColor("#d9c36a")
+        self._search_match_foreground = QColor("#1a1a1a")
+        self._search_current_background = QColor("#f0b94d")
+        self._search_current_foreground = QColor("#111111")
+
+        self._search_scrollbar = SearchMarkerScrollBar(Qt.Orientation.Vertical, self)
+        self.setVerticalScrollBar(self._search_scrollbar)
+        self.find_bar = EditorFindBar(self)
+        self.find_bar.hide()
+        self.find_bar.queryChanged.connect(self._set_search_query)
+        self.find_bar.findRequested.connect(self.find_search_match)
+        self.find_bar.closeRequested.connect(self.hide_find_bar)
+        self.textChanged.connect(self._refresh_search_after_edit)
+
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(self.base_font_size)
         self.setFont(font)
+
+    def show_find_bar(self) -> None:
+        selected = self.textCursor().selectedText().replace("\u2029", "\n")
+        if selected and "\n" not in selected and len(selected) <= 160:
+            self.find_bar.set_query(selected)
+        self._search_anchor_position = self.textCursor().selectionEnd()
+        self.find_bar.show()
+        self.find_bar.raise_()
+        self._position_find_bar()
+        if self.find_bar.query_edit.text():
+            self._set_search_query(self.find_bar.query_edit.text())
+        self.find_bar.focus_query(select_all=True)
+
+    def hide_find_bar(self) -> None:
+        self.find_bar.hide()
+        self._search_query = ""
+        self._search_ranges.clear()
+        self._search_active_index = None
+        self.setExtraSelections([])
+        self._search_scrollbar.set_markers([])
+        self.setFocus(Qt.FocusReason.ShortcutFocusReason)
+
+    def is_find_bar_visible(self) -> bool:
+        return self.find_bar.isVisible()
+
+    def search_match_ranges(self) -> tuple[tuple[int, int], ...]:
+        return tuple(self._search_ranges)
+
+    def active_search_range(self) -> tuple[int, int] | None:
+        if self._search_active_index is None or not self._search_ranges:
+            return None
+        return self._search_ranges[self._search_active_index]
+
+    def set_search_theme(
+        self,
+        *,
+        match_background: str,
+        match_foreground: str,
+        current_background: str,
+        current_foreground: str,
+        marker: str,
+        current_marker: str,
+    ) -> None:
+        self._search_match_background = QColor(match_background)
+        self._search_match_foreground = QColor(match_foreground)
+        self._search_current_background = QColor(current_background)
+        self._search_current_foreground = QColor(current_foreground)
+        self._search_scrollbar.set_marker_colors(marker, current_marker)
+        self._render_search_highlights()
+
+    def find_search_match(self, direction: str = "down") -> bool:
+        if not self._search_ranges:
+            self.find_bar.set_result_count(0)
+            return False
+
+        direction = "up" if direction == "up" else "down"
+        if self._search_active_index is None:
+            self._search_active_index = self._initial_search_index(direction)
+        elif direction == "down":
+            self._search_active_index = (self._search_active_index + 1) % len(self._search_ranges)
+        else:
+            self._search_active_index = (self._search_active_index - 1) % len(self._search_ranges)
+
+        start, end = self._search_ranges[self._search_active_index]
+        cursor = QTextCursor(self.document())
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+        self.find_bar.set_result_count(len(self._search_ranges), self._search_active_index)
+        self._render_search_highlights()
+        return True
+
+    def _initial_search_index(self, direction: str) -> int:
+        anchor = max(0, min(self.document().characterCount() - 1, self._search_anchor_position))
+        if direction == "up":
+            for index in range(len(self._search_ranges) - 1, -1, -1):
+                start, end = self._search_ranges[index]
+                if end <= anchor:
+                    return index
+            return len(self._search_ranges) - 1
+        for index, (start, _end) in enumerate(self._search_ranges):
+            if start >= anchor:
+                return index
+        return 0
+
+    def _set_search_query(self, query: str) -> None:
+        self._search_query = query
+        self._search_active_index = None
+        self._search_anchor_position = self.textCursor().selectionEnd()
+        self._collect_search_matches()
+        self.find_bar.set_result_count(len(self._search_ranges))
+        self._render_search_highlights()
+
+    def _refresh_search_after_edit(self) -> None:
+        if not self._search_query:
+            return
+        active_start = None
+        if self._search_active_index is not None and self._search_ranges:
+            active_start = self._search_ranges[self._search_active_index][0]
+        self._collect_search_matches()
+        self._search_active_index = None
+        if active_start is not None and self._search_ranges:
+            nearest = min(range(len(self._search_ranges)), key=lambda index: abs(self._search_ranges[index][0] - active_start))
+            self._search_active_index = nearest
+        self.find_bar.set_result_count(len(self._search_ranges), self._search_active_index)
+        self._render_search_highlights()
+
+    def _collect_search_matches(self) -> None:
+        self._search_ranges.clear()
+        query = self._search_query
+        if not query:
+            return
+        document = self.document()
+        cursor = QTextCursor(document)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        while True:
+            match = document.find(query, cursor)
+            if match.isNull() or not match.hasSelection():
+                break
+            start = match.selectionStart()
+            end = match.selectionEnd()
+            if end <= start:
+                break
+            self._search_ranges.append((start, end))
+            cursor.setPosition(end)
+
+    def _render_search_highlights(self) -> None:
+        selections: list[QTextEdit.ExtraSelection] = []
+        for index, (start, end) in enumerate(self._search_ranges):
+            selection = QTextEdit.ExtraSelection()
+            cursor = QTextCursor(self.document())
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            selection.cursor = cursor
+            if index == self._search_active_index:
+                selection.format.setBackground(self._search_current_background)
+                selection.format.setForeground(self._search_current_foreground)
+            else:
+                selection.format.setBackground(self._search_match_background)
+                selection.format.setForeground(self._search_match_foreground)
+            selection.format.setProperty(QTextFormat.Property.FullWidthSelection, False)
+            selections.append(selection)
+        self.setExtraSelections(selections)
+        marker_positions = [self._search_marker_ratio(start) for start, _end in self._search_ranges]
+        active_marker = None
+        if self._search_active_index is not None and self._search_ranges:
+            active_marker = marker_positions[self._search_active_index]
+        self._search_scrollbar.set_markers(marker_positions, active_marker)
+
+    def _search_marker_ratio(self, position: int) -> float:
+        document = self.document()
+        document_height = max(1.0, document.size().height())
+        cursor = QTextCursor(document)
+        cursor.setPosition(max(0, min(position, document.characterCount() - 1)))
+        block = cursor.block()
+        layout = block.layout()
+        block_rect = document.documentLayout().blockBoundingRect(block)
+        line = layout.lineForTextPosition(cursor.positionInBlock()) if layout is not None else None
+        y = block_rect.top()
+        if line is not None and line.isValid():
+            y += line.y() + line.height() / 2.0
+        return max(0.0, min(1.0, y / document_height))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._position_find_bar()
+
+    def _position_find_bar(self) -> None:
+        if not self.find_bar.isVisible():
+            return
+        self.find_bar.adjustSize()
+        available_width = max(260, self.viewport().width() - 18)
+        width = min(max(self.find_bar.sizeHint().width(), 520), available_width)
+        self.find_bar.resize(width, self.find_bar.sizeHint().height())
+        x = max(6, self.viewport().geometry().right() - width - 6)
+        y = self.viewport().geometry().top() + 6
+        self.find_bar.move(x, y)
+        self.find_bar.raise_()
 
     def set_editor_font_size(self, size: int) -> None:
         self.base_font_size = max(8, min(32, size))

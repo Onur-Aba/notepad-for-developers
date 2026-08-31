@@ -177,3 +177,79 @@ def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
     editor.setTextCursor(cursor)
     QTest.keyClick(editor, Qt.Key.Key_Return)
     assert editor.toPlainText() == "☐ Backend\n\n☐ "
+
+
+def test_inline_find_highlights_all_matches_and_advances_down(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git one\ngit two\nGIT three")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.Start)
+    editor.setTextCursor(cursor)
+
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+
+    ranges = editor.search_match_ranges()
+    assert len(ranges) == 3
+    assert len(editor.extraSelections()) == 3
+    assert editor.active_search_range() is None
+
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[0]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[1]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[2]
+    assert editor.find_search_match("down") is True
+    assert editor.active_search_range() == ranges[0]
+
+
+def test_inline_find_advances_up_and_direction_boxes_are_exclusive(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git one\ngit two\ngit three")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+    assert editor.find_bar.down_checkbox.isChecked() is True
+    assert editor.find_bar.up_checkbox.isChecked() is False
+
+    editor.find_bar.up_checkbox.click()
+    assert editor.find_bar.up_checkbox.isChecked() is True
+    assert editor.find_bar.down_checkbox.isChecked() is False
+
+    ranges = editor.search_match_ranges()
+    assert editor.find_search_match("up") is True
+    assert editor.active_search_range() == ranges[-1]
+    assert editor.find_search_match("up") is True
+    assert editor.active_search_range() == ranges[-2]
+
+    editor.find_bar.down_checkbox.click()
+    assert editor.find_bar.down_checkbox.isChecked() is True
+    assert editor.find_bar.up_checkbox.isChecked() is False
+
+
+def test_inline_find_scrollbar_receives_one_marker_per_match(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("alpha\n" * 30 + "needle\n" + "beta\n" * 30 + "needle\n")
+    editor.show_find_bar()
+    editor.find_bar.set_query("needle")
+
+    assert len(editor.search_match_ranges()) == 2
+    assert len(editor._search_scrollbar._markers) == 2
+    assert all(0.0 <= marker <= 1.0 for marker in editor._search_scrollbar._markers)
+
+
+def test_inline_find_close_clears_highlights(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("git git")
+    editor.show_find_bar()
+    editor.find_bar.set_query("git")
+    assert len(editor.extraSelections()) == 2
+
+    editor.hide_find_bar()
+    assert editor.is_find_bar_visible() is False
+    assert editor.extraSelections() == []
+    assert editor.search_match_ranges() == ()

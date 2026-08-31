@@ -3,7 +3,7 @@ from __future__ import annotations
 APP_NAME = "DevNest"
 ORGANIZATION_NAME = "DevNest"
 ORGANIZATION_DOMAIN = "devnest.local"
-VERSION = "1.2.4"
+VERSION = "1.2.5"
 DEFAULT_NOTE_TITLE = "Untitled Note"
 DEFAULT_AUTOSAVE_DELAY_MS = 750
 MIN_AUTOSAVE_DELAY_MS = 300

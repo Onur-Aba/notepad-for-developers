@@ -661,16 +661,8 @@ class MainWindow(QMainWindow):
         self.stats_label.setText(f"Words: {words}  •  Lines: {lines}  •  Ln {line}, Col {col}")
 
     def find_in_note(self) -> None:
-        term, ok = QInputDialog.getText(self, "Find", "Find text:")
-        if not ok or not term:
-            return
-        if self.editor.find(term):
-            return
-        cursor = self.editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        self.editor.setTextCursor(cursor)
-        if not self.editor.find(term):
-            QMessageBox.information(self, "Find", f'"{term}" was not found.')
+        self.tabs.setCurrentIndex(0)
+        self.editor.show_find_bar()
 
     def import_txt(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Import TXT", "", "Text Files (*.txt);;All Files (*)")
@@ -780,7 +772,16 @@ class MainWindow(QMainWindow):
     def set_theme(self, theme: str, persist: bool = True) -> None:
         self.theme_manager.apply(theme)
         resolved_theme = self.theme_manager.current_theme
-        self.diagram.set_theme(self.theme_manager.current_spec.diagram_palette())
+        spec = self.theme_manager.current_spec
+        self.diagram.set_theme(spec.diagram_palette())
+        self.editor.set_search_theme(
+            match_background=spec.find_match_bg,
+            match_foreground=spec.find_match_fg,
+            current_background=spec.find_current_bg,
+            current_foreground=spec.find_current_fg,
+            marker=spec.find_marker,
+            current_marker=spec.find_current_marker,
+        )
         self.preferences.theme = resolved_theme
         for name, action in getattr(self, "theme_actions", {}).items():
             action.setChecked(name == resolved_theme)
