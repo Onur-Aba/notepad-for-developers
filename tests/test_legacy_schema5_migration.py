@@ -155,12 +155,12 @@ def _create_legacy_v5_database(path: Path) -> None:
     con.close()
 
 
-def test_legacy_schema5_is_converted_to_normalized_schema6(tmp_path: Path) -> None:
+def test_legacy_schema5_is_converted_to_normalized_current_schema(tmp_path: Path) -> None:
     path = tmp_path / "legacy5.db"
     _create_legacy_v5_database(path)
 
     db = Database(path)
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == Database.SCHEMA_VERSION
 
     # The exact crash from the report is fixed: description now exists and is readable.
     project = db.get_project(1)
@@ -213,6 +213,6 @@ def test_legacy_schema5_is_converted_to_normalized_schema6(tmp_path: Path) -> No
 def test_normalized_schema4_can_advance_through_bridge_versions(tmp_path: Path) -> None:
     path = tmp_path / "normalized.db"
     db = Database(path)
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == 6
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == Database.SCHEMA_VERSION
     project = db.create_project("After migration", "works")
     assert db.get_project(project.id).description == "works"

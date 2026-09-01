@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from app.i18n import I18n
 
@@ -21,12 +21,19 @@ INTEGRATION_ITEMS = (
 
 class NavigationSidebar(QWidget):
     pageSelected = Signal(str)
+    trashRequested = Signal()
 
     def __init__(self, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
         self.i18n = i18n
         self.setObjectName("globalNavigation")
-        self.setFixedWidth(224)
+        # The outer product splitter controls this width. Keeping a useful range
+        # prevents the navigation from becoming unreadably narrow or wasting the
+        # entire window when dragged too far.
+        self.setMinimumWidth(170)
+        self.setMaximumWidth(420)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 16, 14, 14)
         root.setSpacing(5)
@@ -58,10 +65,16 @@ class NavigationSidebar(QWidget):
             self._add_button(root, key, label_key, tip_key)
 
         root.addStretch(1)
+        self.trash_button = QPushButton()
+        self.trash_button.setObjectName("navTrashButton")
+        self.trash_button.clicked.connect(self.trashRequested)
+        root.addWidget(self.trash_button)
+
         self.privacy = QLabel()
         self.privacy.setWordWrap(True)
         self.privacy.setObjectName("navFooter")
         root.addWidget(self.privacy)
+
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
         self.retranslate_ui()
         self.set_current("dashboard")
@@ -71,7 +84,6 @@ class NavigationSidebar(QWidget):
         button.setObjectName("navButton")
         button.setCheckable(True)
         button.setAutoExclusive(True)
-        button.setCursor(button.cursor())
         button.clicked.connect(lambda _checked=False, page=key: self.pageSelected.emit(page))
         layout.addWidget(button)
         self.buttons[key] = button
@@ -83,6 +95,12 @@ class NavigationSidebar(QWidget):
         self.workspace_section.setText(self.i18n.t("nav.workspace"))
         self.integrations_section.setText(self.i18n.t("nav.integrations"))
         self.privacy.setText(self.i18n.t("nav.footer"))
+        self.trash_button.setText("🗑  Çöp Kutusu" if self.i18n.language == "tr" else "🗑  Trash")
+        self.trash_button.setToolTip(
+            "Tek tek sildiğiniz notları ve tamamını sildiğiniz projeleri burada görürsünüz. Projeler, içindeki not/karar/diyagramlarla birlikte tek paket olarak tutulur."
+            if self.i18n.language == "tr" else
+            "See individually deleted notes and entire deleted projects here. Projects stay grouped with their notes, decisions and diagrams as one bundle."
+        )
         for key, button in self.buttons.items():
             button.setText(self.i18n.t(self._label_keys[key]))
             button.setToolTip(self.i18n.t(self._tooltip_keys[key]))

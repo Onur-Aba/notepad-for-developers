@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QPushButton,
     QSlider,
     QSplitter,
@@ -33,9 +34,10 @@ from app.constants import APP_NAME, DEFAULT_NOTE_TITLE, SHORTCUTS, VERSION
 from app.i18n import I18n, LANGUAGE_OPTIONS
 from app.database import Database, DatabaseError
 from app.dialogs.preferences import PreferencesDialog
+from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.shortcuts import ShortcutsDialog
 from app.dialogs.trash import TrashDialog
-from app.models import Note, ResourceType, ReviewStatus, ReviewSummary
+from app.models import ChangedFile, CommitHistoryEntry, Note, ResourceType, ReviewStatus, ReviewSummary
 from app.integrations.github.browser import BrowserLauncher
 from app.integrations.github.client import GitHubClient
 from app.integrations.github.config import GitHubConfig
@@ -46,7 +48,6 @@ from app.pages.github_page import GitHubPage
 from app.pages.project_detail_page import ProjectDetailPage
 from app.pages.projects_page import ProjectsPage
 from app.pages.review_inbox_page import ReviewInboxPage
-from app.pages.settings_page import SettingsPage
 from app.services.async_tasks import AsyncTaskRunner
 from app.services.change_detection_service import ChangeDetectionService, merge_review_summaries
 from app.services.credential_store import create_default_credential_store
@@ -119,6 +120,9 @@ class MainWindow(QMainWindow):
         self._review_refresh_pending = False
         self._local_watch_in_progress = False
         self._last_local_heads: dict[int, str] = {}
+        self._history_refresh_in_progress = False
+        self._history_refresh_pending = False
+        self._github_state = "disconnected"
 
         self.setWindowTitle(f"{APP_NAME} — Local-first Developer Workspace")
         self.setMinimumSize(1040, 680)
@@ -172,7 +176,9 @@ class MainWindow(QMainWindow):
         self.diagram = DiagramView()
         self.tabs = QTabWidget()
         self.tabs.addTab(self.editor, "Editor")
-        self.tabs.addTab(self.diagram, "Diagram")
+        # Diagrams now live only on the dedicated Architecture page. The legacy
+        # DiagramView object remains available for backward-compatible data/theme
+        # handling, but it is no longer exposed inside Notes.
 
         self.note_resource_bar = QWidget()
         self.note_resource_bar.setObjectName("resourceBar")
@@ -238,7 +244,6 @@ class MainWindow(QMainWindow):
             self.database, self.credential_store, self.github_config, self.browser_launcher, self.i18n
         )
         self.github_page.set_current_project(self.current_project_id)
-        self.settings_page = SettingsPage(self.settings, self.i18n)
 
         self.page_stack = QStackedWidget()
         self.pages = {
@@ -250,7 +255,6 @@ class MainWindow(QMainWindow):
             "architecture": self.architecture_page,
             "review": self.review_page,
             "github": self.github_page,
-            "settings": self.settings_page,
         }
         for page in self.pages.values():
             self.page_stack.addWidget(page)
@@ -267,8 +271,9 @@ class MainWindow(QMainWindow):
         self.global_search = QLineEdit()
         self.global_search.setPlaceholderText("Search projects, notes, decisions…")
         self.global_search.setClearButtonEnabled(True)
-        self.github_indicator = QLabel("GitHub Disconnected")
+        self.github_indicator = QPushButton("Connect GitHub")
         self.github_indicator.setObjectName("connectivityIndicator")
+        self.github_indicator.clicked.connect(self._top_right_action)
         self.project_selector_label = QLabel()
         self.project_selector_label.setObjectName("topBarLabel")
         self.language_combo = QComboBox()
@@ -293,13 +298,22 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.top_bar)
         right_layout.addWidget(self.page_stack, 1)
 
-        central = QWidget()
-        central_layout = QHBoxLayout(central)
-        central_layout.setContentsMargins(0, 0, 0, 0)
-        central_layout.setSpacing(0)
-        central_layout.addWidget(self.global_navigation)
-        central_layout.addWidget(right, 1)
-        self.setCentralWidget(central)
+        self.product_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.product_splitter.setObjectName("productSplitter")
+        self.product_splitter.addWidget(self.global_navigation)
+        self.product_splitter.addWidget(right)
+        self.product_splitter.setCollapsible(0, False)
+        self.product_splitter.setCollapsible(1, False)
+        self.product_splitter.setStretchFactor(0, 0)
+        self.product_splitter.setStretchFactor(1, 1)
+        try:
+            navigation_width = int(self.settings.value("ui/global_navigation_width", 224) or 224)
+        except (TypeError, ValueError):
+            navigation_width = 224
+        navigation_width = max(170, min(420, navigation_width))
+        self.product_splitter.setSizes([navigation_width, max(700, self.width() - navigation_width)])
+        self.product_splitter.splitterMoved.connect(self._global_navigation_resized)
+        self.setCentralWidget(self.product_splitter)
 
         self.save_label = QLabel()
         self.repository_status_label = QLabel()
@@ -312,6 +326,7 @@ class MainWindow(QMainWindow):
         self.decisions_page.set_project(self.current_project_id)
         self.architecture_page.set_project(self.current_project_id)
         self.project_detail_page.set_project(self.current_project_id)
+        self.review_page.set_project(self.current_project_id)
         self._navigate("dashboard")
 
     def _create_actions(self) -> None:
@@ -392,8 +407,8 @@ class MainWindow(QMainWindow):
         self.editor_tab_action.setShortcut(SHORTCUTS["Editor Tab"])
         self.editor_tab_action.triggered.connect(lambda: self.tabs.setCurrentIndex(0))
         self.diagram_tab_action = QAction("Diagram", self)
-        self.diagram_tab_action.setShortcut(SHORTCUTS["Diagram Tab"])
-        self.diagram_tab_action.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.diagram_tab_action.setEnabled(False)
+        self.diagram_tab_action.setVisible(False)
 
         self.preferences_action = QAction("Preferences…", self)
         self.preferences_action.triggered.connect(self.open_preferences)
@@ -476,21 +491,19 @@ class MainWindow(QMainWindow):
         self.editor_workspace_button.setCheckable(True)
         self.editor_workspace_button.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
         self.diagram_workspace_button = QPushButton("Diagram")
-        self.diagram_workspace_button.setObjectName("workspaceButton")
-        self.diagram_workspace_button.setCheckable(True)
-        self.diagram_workspace_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        self.workspace_layout.addWidget(self.editor_workspace_button)
-        self.workspace_layout.addWidget(self.diagram_workspace_button)
+        self.diagram_workspace_button.setVisible(False)
         self.workspace_layout.addStretch(1)
         self.theme_label = QLabel()
+        self.theme_label.setVisible(False)
         self.workspace_layout.addWidget(self.theme_label)
         self.theme_combo = QComboBox()
-        self.theme_combo.setObjectName("themePresetCombo")
-        self.theme_combo.setToolTip("Choose a DevNest color theme")
+        self.theme_combo.setVisible(False)
         for label, value in THEME_OPTIONS:
             self.theme_combo.addItem(label, value)
         self.theme_combo.currentIndexChanged.connect(self._theme_combo_changed)
         self.workspace_layout.addWidget(self.theme_combo)
+        self.editor_workspace_button.setVisible(False)
+        self.workspace_bar.setVisible(False)
         self._sync_workspace_buttons(self.tabs.currentIndex())
 
         # Defensive: if the platform style creates an extension button anyway,
@@ -600,7 +613,6 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.toggle_sidebar_action)
         view_menu.addSeparator()
         view_menu.addAction(self.editor_tab_action)
-        view_menu.addAction(self.diagram_tab_action)
         self.theme_menu = view_menu.addMenu("Theme")
         theme_menu = self.theme_menu
         self.theme_group = QActionGroup(self)
@@ -655,6 +667,7 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._sync_workspace_buttons)
 
         self.global_navigation.pageSelected.connect(self._navigate)
+        self.global_navigation.trashRequested.connect(self.open_trash)
         self.project_selector.currentIndexChanged.connect(self._project_selected)
         self.global_search.returnPressed.connect(self._open_global_search)
         self.note_link_button.clicked.connect(lambda: self._link_resource("note", self.current_note_id))
@@ -669,10 +682,12 @@ class MainWindow(QMainWindow):
         self.project_detail_page.backRequested.connect(lambda: self._navigate("projects"))
         self.project_detail_page.sectionRequested.connect(self._project_section_requested)
         self.project_detail_page.refreshRepositoryRequested.connect(self._refresh_repository_async)
+        self.project_detail_page.unlinkRepositoryRequested.connect(self._unlink_repository_from_project)
 
         self.decisions_page.linkResourceRequested.connect(lambda did: self._link_resource("decision", did or None))
         self.decisions_page.viewChangesRequested.connect(lambda did: self._view_resource_changes("decision", did or None))
         self.decisions_page.markReviewedRequested.connect(lambda did: self._mark_resource_reviewed("decision", did or None))
+        self.decisions_page.decisionsChanged.connect(self._decisions_changed)
         self.decisions_page.list.currentItemChanged.connect(lambda _current, _previous: QTimer.singleShot(0, self._refresh_decision_status))
         self.architecture_page.diagram.itemsDeleted.connect(lambda ids: self._diagram_items_deleted(self.architecture_page.note_id, ids))
         self.architecture_page.linkNodeRequested.connect(lambda note_id, node_id: self._link_resource("diagram_item", node_id, note_id))
@@ -680,13 +695,16 @@ class MainWindow(QMainWindow):
         self.architecture_page.markReviewedRequested.connect(lambda note_id, node_id: self._mark_resource_reviewed("diagram_item", node_id, note_id))
 
         self.review_page.refreshRequested.connect(self.refresh_review_inbox)
+        self.review_page.historyRequested.connect(self.refresh_project_history)
+        self.review_page.historyDetailsRequested.connect(self._load_history_commit_details)
         self.review_page.viewRequested.connect(self._show_review_details)
         self.review_page.markReviewedRequested.connect(self._mark_summary_reviewed)
         self.github_page.connectionStateChanged.connect(self._github_state_changed)
         self.github_page.repositoriesChanged.connect(self._github_repositories_changed)
         self.github_page.linkRepositoryRequested.connect(self._link_github_repository_to_current_project)
-        self.settings_page.preferencesRequested.connect(self.open_preferences)
-        self.settings_page.githubRequested.connect(lambda: self._navigate("github"))
+        self.github_page.unlinkRepositoryRequested.connect(
+            lambda repository_id: self._unlink_repository_from_project(self.current_project_id, repository_id)
+        )
         self.i18n.languageChanged.connect(self._language_changed)
 
         color_scheme_changed = getattr(QApplication.styleHints(), "colorSchemeChanged", None)
@@ -709,6 +727,7 @@ class MainWindow(QMainWindow):
         self.project_detail_page.set_project(self.current_project_id)
         self.decisions_page.refresh(self.decisions_page.current_decision_id)
         self.refresh_note_resources()
+        self._github_state_changed(self._github_state)
 
     def _retranslate_shell(self) -> None:
         tr = self.i18n.language == "tr"
@@ -727,9 +746,7 @@ class MainWindow(QMainWindow):
         self.note_view_changes_button.setToolTip(self.i18n.t("tip.notes.changes"))
         self.note_mark_reviewed_button.setToolTip(self.i18n.t("tip.notes.review"))
         self.tabs.setTabText(0, self.i18n.t("notes.editor"))
-        self.tabs.setTabText(1, self.i18n.t("notes.diagram"))
         self.editor_workspace_button.setText(self.i18n.t("notes.editor"))
-        self.diagram_workspace_button.setText(self.i18n.t("notes.diagram"))
         self.theme_label.setText("Tema:" if tr else "Theme:")
         if not self._dirty:
             self.save_label.setText(self.i18n.t("status.saved"))
@@ -766,7 +783,6 @@ class MainWindow(QMainWindow):
         for action, (tr_tip, en_tip) in detailed_tips.items():
             action.setToolTip(f"<div style='width:360px'>{tr_tip if tr else en_tip}</div>")
         self.editor_workspace_button.setToolTip("Notun yazı editörünü gösterir." if tr else "Show the note's text editor.")
-        self.diagram_workspace_button.setToolTip("Bu nota ait diyagramı gösterir." if tr else "Show the diagram that belongs to this note.")
         self.theme_combo.setToolTip("Uygulamanın renk görünümünü değiştirir; verilerinizi etkilemez." if tr else "Change DevNest's color appearance. This does not affect your data.")
         if hasattr(self, "file_menu"):
             self.file_menu.setTitle("Dosya" if tr else "File")
@@ -897,10 +913,18 @@ class MainWindow(QMainWindow):
 
     def open_trash(self) -> None:
         self.flush_pending_saves()
+        self.decisions_page.save_current()
+        self.architecture_page.save()
         dialog = TrashDialog(self.database, self.i18n, self)
         dialog.exec()
         if dialog.changed:
+            self._projects_changed()
             self.refresh_sidebar(self.current_note_id)
+            self.project_detail_page.set_project(self.current_project_id)
+            self.decisions_page.set_project(self.current_project_id)
+            self.architecture_page.set_project(self.current_project_id)
+            self.review_page.set_project(self.current_project_id)
+            self.refresh_review_inbox()
 
     def save_current_note(self) -> None:
         self.autosave_timer.stop()
@@ -1056,17 +1080,42 @@ class MainWindow(QMainWindow):
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip(" .")
         return cleaned[:100] or "Untitled Note"
 
+    def open_settings(self) -> None:
+        # Settings are edited in a dedicated modal so the current workspace
+        # remains exactly where the user left it. Changes are applied live.
+        if getattr(self, "_settings_dialog", None) is not None:
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+        dialog = SettingsDialog(self.settings, self.i18n, self)
+        self._settings_dialog = dialog
+        dialog.preferencesChanged.connect(self._settings_page_changed)
+        dialog.preferencesRequested.connect(self.open_preferences)
+        dialog.githubRequested.connect(lambda: (dialog.accept(), self._navigate("github")))
+        current_widget = self.page_stack.currentWidget()
+        current_key = next((key for key, page in self.pages.items() if page is current_widget), "dashboard")
+        try:
+            dialog.exec()
+        finally:
+            self._settings_dialog = None
+            nav_key = "projects" if current_key == "project_detail" else current_key
+            self.global_navigation.set_current(nav_key)
+
     def open_preferences(self) -> None:
         dialog = PreferencesDialog(self.preferences, self.i18n, self)
         if dialog.exec():
             self.preferences = dialog.preferences()
             self.settings.save_preferences(self.preferences)
             self._apply_preferences(self.preferences, persist=False)
-            self.settings_page.startup.setChecked(self.preferences.check_repositories_on_startup)
-            interval_index = self.settings_page.interval.findData(self.preferences.github_poll_interval_minutes)
-            if interval_index >= 0:
-                self.settings_page.interval.setCurrentIndex(interval_index)
+            if getattr(self, "_settings_dialog", None) is not None:
+                self._settings_dialog.sync_from_preferences()
             self._configure_repository_polling()
+
+    def _settings_page_changed(self) -> None:
+        self.preferences = self.settings.preferences()
+        self._apply_preferences(self.preferences, persist=False)
+        self._configure_repository_polling()
+        self._update_top_right_button()
 
     def _apply_preferences(self, prefs: AppPreferences, persist: bool = False) -> None:
         self.editor.set_editor_font_size(prefs.editor_font_size)
@@ -1136,6 +1185,9 @@ class MainWindow(QMainWindow):
         if persist:
             self.settings.set_value("appearance/theme", resolved_theme)
             self.settings.sync()
+        if getattr(self, "_settings_dialog", None) is not None:
+            self._settings_dialog.sync_from_preferences()
+        self._update_top_right_button()
 
     def _theme_combo_changed(self, _index: int) -> None:
         theme = self.theme_combo.currentData()
@@ -1145,11 +1197,16 @@ class MainWindow(QMainWindow):
     def _sync_workspace_buttons(self, index: int) -> None:
         if hasattr(self, "editor_workspace_button"):
             self.editor_workspace_button.setChecked(index == 0)
-            self.diagram_workspace_button.setChecked(index == 1)
 
     def _on_system_color_scheme_changed(self, _scheme) -> None:
         if self.preferences.theme == "system":
             self.set_theme("system", persist=False)
+
+    def _global_navigation_resized(self, _position: int, _index: int) -> None:
+        sizes = self.product_splitter.sizes() if hasattr(self, "product_splitter") else []
+        if sizes:
+            width = max(170, min(420, int(sizes[0])))
+            self.settings.set_value("ui/global_navigation_width", width)
 
     def _toggle_sidebar(self) -> None:
         self.sidebar.setVisible(not self.sidebar.isVisible())
@@ -1169,9 +1226,43 @@ class MainWindow(QMainWindow):
 
     def _projects_changed(self) -> None:
         if self.database.get_project(self.current_project_id) is None:
-            self.current_project_id = self.database.default_project_id()
-        self._refresh_project_selector()
+            replacement = self.database.default_project_id()
+            self._set_current_project(replacement)
+        else:
+            self._refresh_project_selector()
+        self.projects_page.refresh()
         self.dashboard_page.refresh()
+        self.github_page.render_cached()
+
+    def _decisions_changed(self) -> None:
+        self.projects_page.refresh()
+        self.dashboard_page.refresh()
+        self.project_detail_page.set_project(self.current_project_id)
+        self.refresh_review_inbox()
+
+    def _unlink_repository_from_project(self, project_id: int, repository_id: int) -> None:
+        repository = self.database.get_repository(repository_id)
+        if repository is None:
+            return
+        tr = self.i18n.language == "tr"
+        name = repository.full_name or repository.name
+        answer = QMessageBox.question(
+            self, "Depoyu projeden çıkar" if tr else "Remove repository from project",
+            (f'“{name}” bu DevNest projesinden çıkarılsın mı?\n\nBilgisayardaki klasör ve GitHub deposu SİLİNMEZ. Yalnızca bu proje ile bağlantı kaldırılır.'
+             if tr else
+             f'Remove “{name}” from this DevNest project?\n\nThe local folder and GitHub repository are NOT deleted. Only the project connection is removed.'),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.database.unlink_repository_from_project(project_id, repository_id)
+        self.project_detail_page.set_project(project_id)
+        self.projects_page.refresh()
+        self.dashboard_page.refresh()
+        self.github_page.render_cached()
+        self.refresh_review_inbox()
+        self.refresh_project_history()
 
     def _project_selected(self, _index: int) -> None:
         value = self.project_selector.currentData()
@@ -1192,6 +1283,7 @@ class MainWindow(QMainWindow):
         self.decisions_page.set_project(project_id)
         self.architecture_page.set_project(project_id)
         self.project_detail_page.set_project(project_id)
+        self.review_page.set_project(project_id)
         self.github_page.set_current_project(project_id)
         self._search_term = ""
         self.sidebar.search.blockSignals(True)
@@ -1213,6 +1305,9 @@ class MainWindow(QMainWindow):
         self.dashboard_page.refresh()
 
     def _navigate(self, key: str) -> None:
+        if key == "settings":
+            self.open_settings()
+            return
         page = self.pages.get(key)
         if page is None:
             return
@@ -1249,6 +1344,7 @@ class MainWindow(QMainWindow):
             self.architecture_page.refresh()
             self.architecture_page.set_review_summaries(self._review_summaries)
         elif key == "review":
+            self.review_page.set_project(self.current_project_id)
             self.refresh_review_inbox()
         elif key == "github":
             self.github_page.update_connection_state()
@@ -1360,27 +1456,57 @@ class MainWindow(QMainWindow):
         self.database.update_repository_sync(repository_id, None, "local_git", success=False)
         self.statusBar().showMessage(str(exc), 5000)
 
-    def _github_state_changed(self, state: str) -> None:
-        if self.i18n.language == "tr":
-            labels = {
-                "connected": "GitHub Bağlı · Sadece okuma",
-                "offline": "GitHub Çevrimdışı",
-                "reconnect": "GitHub Yeniden Bağlanmalı",
-                "disconnected": "GitHub Bağlı Değil",
-            }
+    def _theme_display_name(self, value: str) -> str:
+        raw = next((label for label, key in THEME_OPTIONS if key == value), value)
+        if self.i18n.language != "tr":
+            return raw
+        return {
+            "System": "Sistem", "Matte Black": "Mat Siyah", "Midnight Slate": "Gece Mavisi",
+            "Graphite": "Grafit", "Clean Light": "Temiz Açık", "Soft Gray": "Yumuşak Gri",
+            "Warm Paper": "Sıcak Kağıt", "Cool Mist": "Soğuk Sis",
+        }.get(raw, raw)
+
+    def _update_top_right_button(self) -> None:
+        if not hasattr(self, "github_indicator"):
+            return
+        connected = self._github_state in {"connected", "offline"}
+        if connected:
+            theme_name = self._theme_display_name(self.theme_manager.current_theme)
+            self.github_indicator.setText(
+                f"Tema: {theme_name} ▾" if self.i18n.language == "tr" else f"Theme: {theme_name} ▾"
+            )
+            self.github_indicator.setToolTip(
+                "GitHub zaten bağlı. Buraya tıklayıp uygulamanın temasını seçebilirsiniz. GitHub bağlantısı GitHub sayfasından yönetilir."
+                if self.i18n.language == "tr" else
+                "GitHub is already connected. Click here to choose the app theme. Manage the GitHub connection from the GitHub page."
+            )
         else:
-            labels = {
-                "connected": "GitHub Connected · Read-only",
-                "offline": "GitHub Offline",
-                "reconnect": "GitHub Reconnect Required",
-                "disconnected": "GitHub Disconnected",
-            }
-        self.github_indicator.setText(labels.get(state, "GitHub"))
-        self.github_indicator.setToolTip(
-            "GitHub bağlantı durumunu gösterir. Bu bağlantı yalnızca okuma içindir; DevNest kod gönderemez."
-            if self.i18n.language == "tr" else
-            "Shows the GitHub connection state. This connection is read-only; DevNest cannot push code."
-        )
+            self.github_indicator.setText("GitHub'ı bağla" if self.i18n.language == "tr" else "Connect GitHub")
+            self.github_indicator.setToolTip(
+                "GitHub bağlı değil. Tıklayın; bağlantı ekranına gidip depolarınıza yalnızca okuma izni verebilirsiniz."
+                if self.i18n.language == "tr" else
+                "GitHub is not connected. Click to open the connection page and grant read-only access to selected repositories."
+            )
+
+    def _top_right_action(self) -> None:
+        if self._github_state not in {"connected", "offline"}:
+            self._navigate("github")
+            return
+        menu = QMenu(self)
+        tr = self.i18n.language == "tr"
+        for label, value in THEME_OPTIONS:
+            action = menu.addAction(self._theme_display_name(value))
+            action.setCheckable(True)
+            action.setChecked(value == self.theme_manager.current_theme)
+            action.triggered.connect(lambda _checked=False, theme=value: self.set_theme(theme))
+        menu.addSeparator()
+        github_action = menu.addAction("GitHub bağlantısını yönet" if tr else "Manage GitHub connection")
+        github_action.triggered.connect(lambda: self._navigate("github"))
+        menu.exec(self.github_indicator.mapToGlobal(self.github_indicator.rect().bottomLeft()))
+
+    def _github_state_changed(self, state: str) -> None:
+        self._github_state = state
+        self._update_top_right_button()
 
     def _link_github_repository_to_current_project(self, repository_id: int) -> None:
         repository = self.database.get_repository(repository_id)
@@ -1542,6 +1668,126 @@ class MainWindow(QMainWindow):
             self.refresh_review_inbox()
             self._refresh_decision_status()
 
+    def refresh_project_history(self) -> None:
+        if self._history_refresh_in_progress:
+            self._history_refresh_pending = True
+            return
+        self._history_refresh_pending = False
+        self._history_refresh_in_progress = True
+        self.review_page.set_history_loading()
+        project_id = self.current_project_id
+        self.task_runner.submit(
+            lambda: self._project_history_worker(project_id),
+            self._project_history_ready,
+            self._project_history_failed,
+            self._project_history_finished,
+        )
+
+    def _project_history_worker(self, project_id: int) -> tuple[int, list[CommitHistoryEntry], list[str]]:
+        worker_db = Database(self.database.path)
+        local_git = LocalGitService()
+        entries: list[CommitHistoryEntry] = []
+        errors: list[str] = []
+        github_client = None
+        try:
+            repositories = worker_db.list_repositories(project_id)
+            for repository in repositories:
+                repo_name = repository.full_name or repository.name
+                root = repository.local_git_root or repository.local_path
+                if root:
+                    try:
+                        for commit, files in local_git.get_commit_history(root):
+                            entries.append(CommitHistoryEntry(
+                                repository_id=repository.id, repository_name=repo_name, commit=commit,
+                                changed_files=files, source="local_git", files_loaded=True,
+                            ))
+                        continue
+                    except Exception as exc:
+                        errors.append(f"{repo_name}: {exc}")
+                if repository.full_name and repository.github_access_state == "available":
+                    try:
+                        if github_client is None:
+                            token = self.github_page.auth.get_valid_access_token()
+                            github_client = GitHubClient(token, self.github_config)
+                        owner, name = repository.full_name.split("/", 1)
+                        commits = github_client.list_commits(
+                            owner, name, repository.default_branch, max_pages=100
+                        )
+                        entries.extend(
+                            CommitHistoryEntry(
+                                repository_id=repository.id, repository_name=repo_name, commit=commit,
+                                changed_files=[], source="github_api", files_loaded=False,
+                            )
+                            for commit in commits
+                        )
+                    except Exception as exc:
+                        errors.append(f"{repo_name}: {exc}")
+            return project_id, entries, errors
+        finally:
+            worker_db.close()
+
+    def _project_history_finished(self) -> None:
+        self._history_refresh_in_progress = False
+        if self._history_refresh_pending:
+            self._history_refresh_pending = False
+            QTimer.singleShot(0, self.refresh_project_history)
+
+    def _project_history_ready(self, result: tuple[int, list[CommitHistoryEntry], list[str]]) -> None:
+        project_id, entries, errors = result
+        if project_id != self.current_project_id:
+            return
+        self.review_page.set_history(entries, errors)
+
+    def _project_history_failed(self, exc: Exception) -> None:
+        self.review_page.set_history_failed(str(exc))
+
+    def _load_history_commit_details(self, repository_id: int, sha: str) -> None:
+        self.statusBar().showMessage(
+            "Committe değişen dosyalar yükleniyor…" if self.i18n.language == "tr" else "Loading files changed by the commit…"
+        )
+        self.task_runner.submit(
+            lambda: self._history_commit_details_worker(repository_id, sha),
+            lambda files: self.review_page.update_history_details(repository_id, sha, files),
+            lambda exc: self._history_commit_details_failed(repository_id, sha, exc),
+            lambda: self.statusBar().clearMessage(),
+        )
+
+    def _history_commit_details_failed(self, repository_id: int, sha: str, exc: Exception) -> None:
+        self.review_page.history_details_failed(repository_id, sha)
+        QMessageBox.warning(
+            self, "Commit Ayrıntısı" if self.i18n.language == "tr" else "Commit Details", str(exc)
+        )
+
+    def _history_commit_details_worker(self, repository_id: int, sha: str) -> list[ChangedFile]:
+        worker_db = Database(self.database.path)
+        try:
+            repository = worker_db.get_repository(repository_id)
+            if repository is None:
+                raise DatabaseError("Repository not found.")
+            root = repository.local_git_root or repository.local_path
+            if root:
+                return LocalGitService().get_commit_changed_files(root, sha)
+            if not repository.full_name:
+                raise RuntimeError("Repository history source is unavailable.")
+            token = self.github_page.auth.get_valid_access_token()
+            client = GitHubClient(token, self.github_config)
+            owner, name = repository.full_name.split("/", 1)
+            data = client.get_commit(owner, name, sha)
+            status_map = {
+                "added": "A", "modified": "M", "removed": "D", "deleted": "D",
+                "renamed": "R", "copied": "C", "changed": "M",
+            }
+            files: list[ChangedFile] = []
+            for raw in data.get("files", []) if isinstance(data, dict) else []:
+                status = status_map.get(str(raw.get("status", "modified")).lower(), "M")
+                files.append(ChangedFile(
+                    status=status, path=str(raw.get("filename", "")),
+                    previous_path=str(raw.get("previous_filename")) if raw.get("previous_filename") else None,
+                ))
+            return files
+        finally:
+            worker_db.close()
+
     def _compute_review_summaries_worker(self, resource_type: str | None = None,
                                          resource_id: str | int | None = None,
                                          resource_parent_id: str | int | None = None) -> list[ReviewSummary]:
@@ -1605,6 +1851,8 @@ class MainWindow(QMainWindow):
             2500,
         )
         self.refresh_review_inbox()
+        if self.review_page.history_entries or self.review_page.tabs.currentIndex() == 1:
+            self.refresh_project_history()
 
     def _application_state_changed(self, state) -> None:
         if state == Qt.ApplicationState.ApplicationActive:

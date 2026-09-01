@@ -115,3 +115,23 @@ def test_repositories_are_sorted_by_most_recent_github_push(tmp_path: Path) -> N
     no_push = db.upsert_repository(name="unknown", full_name="acme/unknown", github_repo_id=4)
 
     assert [repo.id for repo in db.list_repositories()] == [newest.id, middle.id, old.id, no_push.id]
+
+
+def test_deleting_decision_cleans_links_and_does_not_reuse_key(tmp_path: Path) -> None:
+    db = Database(tmp_path / "devnest.db")
+    project_id = db.default_project_id()
+    repo = db.upsert_repository(name="repo", local_git_root=str(tmp_path), github_access_state="local_only")
+    db.link_repository_to_project(project_id, repo.id)
+    first = db.create_decision(project_id, "First")
+    second = db.create_decision(project_id, "Second")
+    link = db.add_resource_link(project_id, "decision", second.id, repo.id, "file", "a.py")
+    db.upsert_review_baseline("decision", second.id, repo.id, "a" * 40, "main")
+
+    db.delete_decision(second.id)
+
+    assert db.get_decision(second.id) is None
+    assert db.get_resource_link(link.id) is None
+    assert db.get_review_baseline("decision", second.id, repo.id) is None
+    replacement = db.create_decision(project_id, "Third")
+    assert first.decision_key == "DEC-001"
+    assert replacement.decision_key == "DEC-003"

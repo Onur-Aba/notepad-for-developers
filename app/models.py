@@ -70,6 +70,7 @@ class Project:
     created_at: str
     updated_at: str
     archived_at: str | None = None
+    trashed_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -179,6 +180,16 @@ class CommitInfo:
     @property
     def short_sha(self) -> str:
         return self.sha[:8]
+
+
+@dataclass(slots=True)
+class CommitHistoryEntry:
+    repository_id: int
+    repository_name: str
+    commit: CommitInfo
+    changed_files: list[ChangedFile] = field(default_factory=list)
+    source: str = "local_git"
+    files_loaded: bool = True
 
 
 @dataclass(slots=True)

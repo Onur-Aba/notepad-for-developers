@@ -46,7 +46,7 @@ class Database:
     are never rewritten.
     """
 
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, path: Path | str | None = None) -> None:
         if path is None:
@@ -381,6 +381,31 @@ class Database:
         # shapes.  Only the schema marker needs to advance.
         with self.connection:
             self.connection.execute("PRAGMA user_version = 6")
+
+    def _migrate_to_v7(self) -> None:
+        """Add reversible project-level Trash without destroying workspace data.
+
+        A project in Trash keeps its repository mappings, resource links, review
+        baselines, decisions and diagrams intact. Notes are hidden using the
+        existing is_deleted flag, while two marker columns remember whether a
+        note was already in Trash before the project was removed.
+        """
+        with self.connection:
+            project_columns = {str(row[1]) for row in self.connection.execute("PRAGMA table_info(projects)").fetchall()}
+            if "trashed_at" not in project_columns:
+                self.connection.execute("ALTER TABLE projects ADD COLUMN trashed_at TEXT")
+            note_columns = {str(row[1]) for row in self.connection.execute("PRAGMA table_info(notes)").fetchall()}
+            if "trashed_with_project_id" not in note_columns:
+                self.connection.execute("ALTER TABLE notes ADD COLUMN trashed_with_project_id INTEGER")
+            if "project_trash_was_deleted" not in note_columns:
+                self.connection.execute("ALTER TABLE notes ADD COLUMN project_trash_was_deleted INTEGER NOT NULL DEFAULT 0")
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_projects_trash ON projects(trashed_at, archived_at, updated_at DESC)"
+            )
+            self.connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_notes_project_trash ON notes(trashed_with_project_id, is_deleted, updated_at DESC)"
+            )
+            self.connection.execute("PRAGMA user_version = 7")
 
     def _is_legacy_v5_schema(self) -> bool:
         """Detect the *shape* of the older schema-5 database.
@@ -1011,6 +1036,7 @@ class Database:
             id=int(row["id"]), name=str(row["name"]), description=str(row["description"] or ""),
             created_at=str(row["created_at"]), updated_at=str(row["updated_at"]),
             archived_at=str(row["archived_at"]) if row["archived_at"] else None,
+            trashed_at=str(row["trashed_at"]) if "trashed_at" in row.keys() and row["trashed_at"] else None,
         )
 
     @staticmethod
@@ -1072,7 +1098,7 @@ class Database:
     # ------------------------------------------------------------------
     def default_project_id(self) -> int:
         row = self.connection.execute(
-            "SELECT id FROM projects WHERE archived_at IS NULL ORDER BY id LIMIT 1"
+            "SELECT id FROM projects WHERE archived_at IS NULL AND trashed_at IS NULL ORDER BY id LIMIT 1"
         ).fetchone()
         if row:
             return int(row["id"])
@@ -1097,14 +1123,28 @@ class Database:
         except sqlite3.Error as exc:
             raise DatabaseError(f"Could not create project: {exc}") from exc
 
-    def get_project(self, project_id: int) -> Project | None:
-        row = self.connection.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+    def get_project(self, project_id: int, include_trashed: bool = False) -> Project | None:
+        sql = "SELECT * FROM projects WHERE id = ?"
+        if not include_trashed:
+            sql += " AND trashed_at IS NULL"
+        row = self.connection.execute(sql, (project_id,)).fetchone()
         return self._project_from_row(row) if row else None
 
-    def list_projects(self, include_archived: bool = False) -> list[Project]:
-        where = "" if include_archived else "WHERE archived_at IS NULL"
+    def list_projects(self, include_archived: bool = False, include_trashed: bool = False) -> list[Project]:
+        where: list[str] = []
+        if not include_archived:
+            where.append("archived_at IS NULL")
+        if not include_trashed:
+            where.append("trashed_at IS NULL")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
         rows = self.connection.execute(
-            f"SELECT * FROM projects {where} ORDER BY updated_at DESC, name COLLATE NOCASE"
+            f"SELECT * FROM projects {clause} ORDER BY updated_at DESC, name COLLATE NOCASE"
+        ).fetchall()
+        return [self._project_from_row(row) for row in rows]
+
+    def list_trashed_projects(self) -> list[Project]:
+        rows = self.connection.execute(
+            "SELECT * FROM projects WHERE trashed_at IS NOT NULL ORDER BY trashed_at DESC, name COLLATE NOCASE"
         ).fetchall()
         return [self._project_from_row(row) for row in rows]
 
@@ -1119,14 +1159,14 @@ class Database:
                    (SELECT COUNT(*) FROM diagrams dg JOIN notes n2 ON n2.id=dg.note_id
                         WHERE n2.project_id=p.id AND n2.is_deleted=0) diagram_count,
                    (SELECT MAX(created_at) FROM activity_events a WHERE a.project_id=p.id) last_activity
-            FROM projects p WHERE p.archived_at IS NULL
+            FROM projects p WHERE p.archived_at IS NULL AND p.trashed_at IS NULL
             ORDER BY p.updated_at DESC
             """
         ).fetchall()
         return [
             ProjectSummary(
                 id=int(row["id"]), name=str(row["name"]), description=str(row["description"] or ""),
-                created_at=str(row["created_at"]), updated_at=str(row["updated_at"]), archived_at=None,
+                created_at=str(row["created_at"]), updated_at=str(row["updated_at"]), archived_at=None, trashed_at=None,
                 repository_count=int(row["repository_count"] or 0), note_count=int(row["note_count"] or 0),
                 decision_count=int(row["decision_count"] or 0), diagram_count=int(row["diagram_count"] or 0),
                 needs_review_count=0, last_activity=str(row["last_activity"]) if row["last_activity"] else None,
@@ -1149,6 +1189,130 @@ class Database:
                 "UPDATE projects SET archived_at=?, updated_at=? WHERE id=?",
                 (utc_now_iso(), utc_now_iso(), project_id),
             )
+
+    def trash_project(self, project_id: int) -> None:
+        """Move an entire project into Trash as one reversible bundle."""
+        project = self.get_project(project_id)
+        if project is None:
+            raise DatabaseError("Project not found.")
+        now = utc_now_iso()
+        try:
+            with self.connection:
+                # Remember each note's previous Trash state so restoring the project
+                # does not resurrect notes that the user had deleted earlier.
+                self.connection.execute(
+                    """UPDATE notes
+                       SET project_trash_was_deleted=is_deleted, is_deleted=1,
+                           trashed_with_project_id=?, updated_at=?
+                       WHERE project_id=?""",
+                    (project_id, now, project_id),
+                )
+                self.connection.execute(
+                    "UPDATE projects SET trashed_at=?, updated_at=? WHERE id=?",
+                    (now, now, project_id),
+                )
+        except sqlite3.Error as exc:
+            raise DatabaseError(f"Could not move project to Trash: {exc}") from exc
+
+    def restore_project(self, project_id: int) -> None:
+        row = self.connection.execute(
+            "SELECT id FROM projects WHERE id=? AND trashed_at IS NOT NULL", (project_id,)
+        ).fetchone()
+        if row is None:
+            raise DatabaseError("Project is not in Trash.")
+        now = utc_now_iso()
+        try:
+            with self.connection:
+                self.connection.execute(
+                    """UPDATE notes
+                       SET is_deleted=project_trash_was_deleted, trashed_with_project_id=NULL,
+                           project_trash_was_deleted=0, updated_at=?
+                       WHERE project_id=? AND trashed_with_project_id=?""",
+                    (now, project_id, project_id),
+                )
+                self.connection.execute(
+                    "UPDATE projects SET trashed_at=NULL, archived_at=NULL, updated_at=? WHERE id=?",
+                    (now, project_id),
+                )
+        except sqlite3.Error as exc:
+            raise DatabaseError(f"Could not restore project: {exc}") from exc
+
+    def project_trash_contents(self, project_id: int) -> dict[str, object]:
+        project = self.get_project(project_id, include_trashed=True)
+        if project is None:
+            raise DatabaseError("Project not found.")
+        decision_rows = self.connection.execute(
+            """SELECT d.id,d.decision_key,n.title FROM decisions d
+               JOIN notes n ON n.id=d.note_id WHERE d.project_id=? ORDER BY d.decision_key""",
+            (project_id,),
+        ).fetchall()
+        decision_note_ids = {int(row["id"]) for row in self.connection.execute(
+            "SELECT note_id AS id FROM decisions WHERE project_id=?", (project_id,)
+        ).fetchall()}
+        note_rows = self.connection.execute(
+            "SELECT id,title FROM notes WHERE project_id=? ORDER BY title COLLATE NOCASE", (project_id,)
+        ).fetchall()
+        normal_notes = [str(row["title"]) for row in note_rows if int(row["id"]) not in decision_note_ids]
+        diagram_rows = self.connection.execute(
+            """SELECT n.title FROM diagrams dg JOIN notes n ON n.id=dg.note_id
+               WHERE n.project_id=? ORDER BY n.title COLLATE NOCASE""", (project_id,)
+        ).fetchall()
+        repo_rows = self.connection.execute(
+            """SELECT COALESCE(r.full_name,r.name) AS label FROM repositories r
+               JOIN project_repositories pr ON pr.repository_id=r.id
+               WHERE pr.project_id=? ORDER BY label COLLATE NOCASE""", (project_id,)
+        ).fetchall()
+        link_count = int(self.connection.execute(
+            "SELECT COUNT(*) FROM resource_links WHERE project_id=?", (project_id,)
+        ).fetchone()[0])
+        baseline_count = int(self.connection.execute(
+            """SELECT COUNT(*) FROM review_baselines rb WHERE EXISTS (
+                   SELECT 1 FROM resource_links rl WHERE rl.project_id=?
+                   AND rl.resource_type=rb.resource_type AND rl.resource_id=rb.resource_id
+                   AND rl.resource_parent_id=rb.resource_parent_id AND rl.repository_id=rb.repository_id
+               )""", (project_id,)
+        ).fetchone()[0])
+        return {
+            "project": project,
+            "notes": normal_notes,
+            "decisions": [f"{row['decision_key']} · {row['title']}" for row in decision_rows],
+            "diagrams": [str(row["title"]) for row in diagram_rows],
+            "repositories": [str(row["label"]) for row in repo_rows],
+            "resource_links": link_count,
+            "review_baselines": baseline_count,
+        }
+
+    def permanently_delete_project(self, project_id: int) -> None:
+        row = self.connection.execute(
+            "SELECT id FROM projects WHERE id=? AND trashed_at IS NOT NULL", (project_id,)
+        ).fetchone()
+        if row is None:
+            raise DatabaseError("Project must be in Trash before permanent deletion.")
+        try:
+            with self.connection:
+                note_ids = [str(row["id"]) for row in self.connection.execute(
+                    "SELECT id FROM notes WHERE project_id=?", (project_id,)
+                ).fetchall()]
+                decision_ids = [str(row["id"]) for row in self.connection.execute(
+                    "SELECT id FROM decisions WHERE project_id=?", (project_id,)
+                ).fetchall()]
+                for note_id in note_ids:
+                    self.connection.execute(
+                        "DELETE FROM review_baselines WHERE resource_type='note' AND resource_id=?", (note_id,)
+                    )
+                    self.connection.execute(
+                        "DELETE FROM review_baselines WHERE resource_type='diagram_item' AND resource_parent_id=?", (note_id,)
+                    )
+                for decision_id in decision_ids:
+                    self.connection.execute(
+                        "DELETE FROM review_baselines WHERE resource_type='decision' AND resource_id=?", (decision_id,)
+                    )
+                self.connection.execute("DELETE FROM resource_links WHERE project_id=?", (project_id,))
+                self.connection.execute("DELETE FROM decisions WHERE project_id=?", (project_id,))
+                self.connection.execute("DELETE FROM notes WHERE project_id=?", (project_id,))
+                self.connection.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        except sqlite3.Error as exc:
+            raise DatabaseError(f"Could not permanently delete project: {exc}") from exc
 
     def touch_project(self, project_id: int) -> None:
         self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (utc_now_iso(), project_id))
@@ -1262,7 +1426,7 @@ class Database:
             SELECT id, title,
                    substr(replace(replace(content_plain, char(10), ' '), char(13), ' '), 1, 140) AS preview,
                    created_at, updated_at, is_deleted, project_id
-            FROM notes WHERE is_deleted = 1 ORDER BY updated_at DESC
+            FROM notes WHERE is_deleted = 1 AND trashed_with_project_id IS NULL ORDER BY updated_at DESC
             """
         ).fetchall()
         return [NoteSummary(
@@ -1297,13 +1461,13 @@ class Database:
 
     def empty_trash(self) -> int:
         try:
-            rows = self.connection.execute("SELECT id FROM notes WHERE is_deleted=1").fetchall()
+            rows = self.connection.execute("SELECT id FROM notes WHERE is_deleted=1 AND trashed_with_project_id IS NULL").fetchall()
             with self.connection:
                 for row in rows:
                     nid = str(row["id"])
                     self.connection.execute("DELETE FROM resource_links WHERE resource_type='note' AND resource_id=?", (nid,))
                     self.connection.execute("DELETE FROM review_baselines WHERE resource_type='note' AND resource_id=?", (nid,))
-                cursor = self.connection.execute("DELETE FROM notes WHERE is_deleted=1")
+                cursor = self.connection.execute("DELETE FROM notes WHERE is_deleted=1 AND trashed_with_project_id IS NULL")
             return int(cursor.rowcount)
         except sqlite3.Error as exc:
             raise DatabaseError(f"Could not empty Trash: {exc}") from exc
@@ -1334,6 +1498,26 @@ class Database:
             pass
         return {"items": [], "edges": [], "paths": []}
 
+    def delete_diagram(self, note_id: int) -> None:
+        """Remove only the architecture diagram attached to a note.
+
+        The note text remains intact. Diagram-node resource links/baselines are
+        relational metadata and are removed with the diagram.
+        """
+        try:
+            with self.connection:
+                self.connection.execute(
+                    "DELETE FROM review_baselines WHERE resource_type='diagram_item' AND resource_parent_id=?",
+                    (str(note_id),),
+                )
+                self.connection.execute(
+                    "DELETE FROM resource_links WHERE resource_type='diagram_item' AND resource_parent_id=?",
+                    (str(note_id),),
+                )
+                self.connection.execute("DELETE FROM diagrams WHERE note_id=?", (note_id,))
+        except sqlite3.Error as exc:
+            raise DatabaseError(f"Could not delete diagram: {exc}") from exc
+
     def list_diagram_notes(self, project_id: int | None = None) -> list[NoteSummary]:
         params: list[object] = []
         where = ["n.is_deleted=0"]
@@ -1355,10 +1539,19 @@ class Database:
     # Decisions
     # ------------------------------------------------------------------
     def _next_decision_key(self, project_id: int) -> str:
+        # Decision keys are permanent human references. A deleted DEC-014 must never
+        # cause a later decision to reuse DEC-014, so include creation history too.
         rows = self.connection.execute("SELECT decision_key FROM decisions WHERE project_id=?", (project_id,)).fetchall()
+        keys = [str(row["decision_key"]) for row in rows]
+        try:
+            history = self.connection.execute(
+                "SELECT title FROM activity_events WHERE project_id=? AND event_type='decision_created'", (project_id,)
+            ).fetchall()
+            keys.extend(str(row["title"]) for row in history)
+        except sqlite3.Error:
+            pass
         numbers: list[int] = []
-        for row in rows:
-            key = str(row["decision_key"])
+        for key in keys:
             if key.startswith("DEC-") and key[4:].isdigit():
                 numbers.append(int(key[4:]))
         return f"DEC-{(max(numbers, default=0) + 1):03d}"
@@ -1433,6 +1626,33 @@ class Database:
             )
             self.connection.execute("UPDATE decisions SET status=?,updated_at=? WHERE id=?", (status, now, decision_id))
             self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, decision.project_id))
+
+    def delete_decision(self, decision_id: int) -> None:
+        decision = self.get_decision(decision_id)
+        if decision is None:
+            raise DatabaseError("Decision not found.")
+        now = utc_now_iso()
+        try:
+            with self.connection:
+                # Polymorphic links/baselines cannot use a direct FK to decisions.
+                self.connection.execute(
+                    "DELETE FROM review_baselines WHERE resource_type='decision' AND resource_id=?",
+                    (str(decision_id),),
+                )
+                self.connection.execute(
+                    "DELETE FROM resource_links WHERE resource_type='decision' AND resource_id=?",
+                    (str(decision_id),),
+                )
+                # decision_commits / decision_pull_requests cascade from decisions.
+                self.connection.execute("DELETE FROM decisions WHERE id=?", (decision_id,))
+                self.connection.execute("DELETE FROM notes WHERE id=?", (decision.note_id,))
+                self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, decision.project_id))
+                self.connection.execute(
+                    "INSERT INTO activity_events(project_id,event_type,title,detail,created_at) VALUES (?, 'decision_deleted', ?, ?, ?)",
+                    (decision.project_id, decision.decision_key, decision.title, now),
+                )
+        except sqlite3.Error as exc:
+            raise DatabaseError(f"Could not delete decision: {exc}") from exc
 
     # ------------------------------------------------------------------
     # Repositories / project mappings
@@ -1536,7 +1756,7 @@ class Database:
         rows = self.connection.execute(
             """SELECT p.* FROM projects p
                JOIN project_repositories pr ON pr.project_id=p.id
-               WHERE pr.repository_id=? AND p.archived_at IS NULL
+               WHERE pr.repository_id=? AND p.archived_at IS NULL AND p.trashed_at IS NULL
                ORDER BY p.updated_at DESC, p.name COLLATE NOCASE""",
             (repository_id,),
         ).fetchall()

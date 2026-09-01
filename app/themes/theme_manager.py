@@ -442,6 +442,91 @@ QToolTip {{
     padding: 9px 11px;
     font-size: 11px;
 }}
+
+/* Accessible settings / dialogs / destructive actions */
+QGroupBox#settingsCard {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 12px;
+    margin-top: 14px;
+    font-weight: 700;
+}}
+QGroupBox#settingsCard::title {{
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px;
+    padding: 0 7px;
+    color: {spec.text};
+    background: {spec.window};
+}}
+QLabel#settingLabel {{ font-weight: 650; }}
+QLabel#settingHelp {{ color: {spec.muted}; line-height: 1.35; }}
+QFrame#settingsDialogHeader {{
+    background: {spec.surface};
+    border-bottom: 1px solid {spec.border};
+}}
+QFrame#settingsDialogSidebar {{
+    background: {spec.surface};
+    border-right: 1px solid {spec.border};
+}}
+QPushButton#settingsCategoryButton {{
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 11px;
+    text-align: left;
+    background: transparent;
+}}
+QPushButton#settingsCategoryButton:hover {{ background: {spec.hover}; }}
+QPushButton#settingsCategoryButton:checked {{ background: {spec.selected}; font-weight: 700; }}
+QLineEdit#settingsSearchInput {{
+    background: {spec.editor};
+    border: 1px solid {spec.border};
+    border-radius: 9px;
+    padding: 8px 11px;
+    font-size: 13px;
+}}
+QLabel#dialogTitle {{ font-size: 22px; font-weight: 760; }}
+QFrame#dialogCard, QFrame#trashProjectCard {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 11px;
+}}
+QFrame#trashBundleDetails, QFrame#historyCommitDetails {{
+    background: {spec.surface_alt};
+    border: 1px solid {spec.border};
+    border-radius: 9px;
+}}
+QFrame#dangerPanel {{
+    background: {spec.surface_alt};
+    border: 1px solid #c94f4f;
+    border-radius: 10px;
+}}
+QLabel#confirmationProjectName {{
+    font-size: 17px; font-weight: 750; padding: 10px 12px;
+    background: {spec.surface_alt}; border: 1px solid {spec.border}; border-radius: 8px;
+}}
+QLabel#bundleSectionTitle {{ font-weight: 700; margin-top: 4px; }}
+QLabel#bundleItem {{ color: {spec.text}; padding-left: 4px; }}
+QPushButton#dangerButton {{
+    background: #b42318; color: #ffffff; border: 1px solid #b42318;
+    border-radius: 7px; padding: 7px 12px; font-weight: 700;
+}}
+QPushButton#dangerButton:hover {{ background: #d92d20; border-color: #d92d20; }}
+QPushButton#dangerButton:disabled {{ background: {spec.surface_alt}; color: {spec.muted}; border-color: {spec.border}; }}
+QPushButton#disclosureButton {{
+    min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px;
+    padding: 0; font-size: 18px; font-weight: 700; background: {spec.surface_alt};
+}}
+QPushButton#navTrashButton {{
+    border: 1px solid {spec.border}; border-radius: 8px; padding: 9px 10px;
+    text-align: left; background: {spec.surface_alt};
+}}
+QPushButton#navTrashButton:hover {{ background: {spec.hover}; }}
+QPushButton#connectivityIndicator {{ color: {spec.text}; padding: 6px 9px; }}
+QDialog#projectWizard, QDialog#projectDeleteDialog, QDialog#trashDialog {{ background: {spec.window}; }}
+QDialog#projectWizard QStackedWidget, QDialog#projectWizard QWidget#dialogPage {{ background: {spec.window}; }}
+QRadioButton {{ spacing: 8px; min-height: 26px; }}
+QCheckBox {{ spacing: 8px; }}
 """
 
 

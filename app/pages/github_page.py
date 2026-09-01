@@ -34,6 +34,7 @@ class GitHubPage(QWidget):
     connectionStateChanged = Signal(str)
     repositoriesChanged = Signal()
     linkRepositoryRequested = Signal(int)
+    unlinkRepositoryRequested = Signal(int)
 
     def __init__(self, database: Database, credential_store: CredentialStore,
                  config: GitHubConfig, browser: BrowserLauncher, i18n: I18n, parent=None) -> None:
@@ -541,13 +542,19 @@ class GitHubPage(QWidget):
             already_in_current = bool(self.current_project_id and self.database.project_repository(self.current_project_id, repo.id))
             if already_in_current:
                 current_project = self.database.get_project(self.current_project_id) if self.current_project_id else None
-                link_button = QPushButton((f"Bu projede: {current_project.name}" if self.i18n.language == "tr" and current_project else f"In current project: {current_project.name}" if current_project else self.i18n.t("github.link_project")))
-                link_button.setEnabled(False)
+                link_button = QPushButton("Projeden çıkar" if self.i18n.language == "tr" else "Remove from project")
+                link_button.setObjectName("dangerButton")
+                link_button.setToolTip(
+                    (f"{current_project.name if current_project else 'Aktif proje'} ile bu depo arasındaki DevNest bağlantısını kaldırır. GitHub deposu veya bilgisayarınızdaki klasör silinmez."
+                     if self.i18n.language == "tr" else
+                     f"Disconnect this repository from {current_project.name if current_project else 'the current project'} in DevNest. The GitHub repository and local folder are not deleted.")
+                )
+                link_button.clicked.connect(lambda _checked=False, rid=repo.id: self.unlinkRepositoryRequested.emit(rid))
             else:
                 link_button = QPushButton(self.i18n.t("github.link_project"))
-            link_button.setObjectName("primaryButton")
-            link_button.setToolTip(self.i18n.t("tip.github.link_project"))
-            link_button.clicked.connect(lambda _checked=False, rid=repo.id: self.linkRepositoryRequested.emit(rid))
+                link_button.setObjectName("primaryButton")
+                link_button.setToolTip(self.i18n.t("tip.github.link_project"))
+                link_button.clicked.connect(lambda _checked=False, rid=repo.id: self.linkRepositoryRequested.emit(rid))
             actions.addWidget(link_button)
             actions.addWidget(open_button)
             actions.addStretch(1)
