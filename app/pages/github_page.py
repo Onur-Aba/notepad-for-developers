@@ -236,8 +236,10 @@ class GitHubPage(QWidget):
     def connect_github(self) -> None:
         if not self.config.configured:
             QMessageBox.information(
-                self, "GitHub App Configuration Required",
-                "Set the public DEVNEST_GITHUB_CLIENT_ID (and optionally DEVNEST_GITHUB_APP_SLUG) for your DevNest GitHub App. No client secret or private key is used by the desktop app.",
+                self, "GitHub App Ayarı Gerekli" if self.i18n.language == "tr" else "GitHub App Configuration Required",
+                ("DevNest GitHub App için public DEVNEST_GITHUB_CLIENT_ID değerini (isteğe bağlı olarak DEVNEST_GITHUB_APP_SLUG değerini de) ayarlayın. Masaüstü uygulaması client secret veya private key kullanmaz."
+                 if self.i18n.language == "tr" else
+                 "Set the public DEVNEST_GITHUB_CLIENT_ID (and optionally DEVNEST_GITHUB_APP_SLUG) for your DevNest GitHub App. No client secret or private key is used by the desktop app."),
             )
             return
         self.connect_button.setEnabled(False)
@@ -462,8 +464,10 @@ class GitHubPage(QWidget):
 
     def disconnect(self) -> None:
         answer = QMessageBox.question(
-            self, "Disconnect GitHub",
-            "Remove DevNest's secure GitHub credentials? Local projects, notes, decisions, diagrams, repository references and review baselines will be preserved.",
+            self, "GitHub Bağlantısını Kes" if self.i18n.language == "tr" else "Disconnect GitHub",
+            ("Bu bilgisayarda güvenli biçimde saklanan GitHub oturumu kaldırılsın mı? Yerel projeler, notlar, kararlar, diyagramlar, depo bağlantıları ve inceleme başlangıç noktaları korunur."
+             if self.i18n.language == "tr" else
+             "Remove DevNest's secure GitHub credentials? Local projects, notes, decisions, diagrams, repository references and review baselines will be preserved."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
         )
         if answer != QMessageBox.StandardButton.Yes:
@@ -473,10 +477,9 @@ class GitHubPage(QWidget):
         try:
             self.auth.disconnect()
         except Exception as exc:
-            QMessageBox.warning(self, "Credential Cleanup", str(exc))
+            QMessageBox.warning(self, "Güvenli Oturum Temizlenemedi" if self.i18n.language == "tr" else "Credential Cleanup", str(exc))
         self.database.disconnect_github_metadata()
-        self.state_text.setText("GitHub disconnected. Local project data was preserved.")
-        self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
+        self.state_text.setText("GitHub bağlantısı kesildi. Yerel proje verileri korundu." if self.i18n.language == "tr" else "GitHub disconnected. Local project data was preserved.")
         self.retranslate_ui()
         self.render_cached()
         self.update_connection_state()

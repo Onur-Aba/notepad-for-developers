@@ -140,7 +140,7 @@ class ProjectsPage(QWidget):
             self.projectsChanged.emit()
             self.projectOpened.emit(project.id)
         except DatabaseError as exc:
-            QMessageBox.critical(self, "Create Project Failed", str(exc))
+            QMessageBox.critical(self, "Proje Oluşturulamadı" if self.i18n.language == "tr" else "Create Project Failed", str(exc))
 
     def _archive(self, project_id: int, name: str) -> None:
         if self.i18n.language == "tr":

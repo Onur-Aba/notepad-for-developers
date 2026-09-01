@@ -26,6 +26,11 @@ class CreateProjectWizard(QWizard):
         tr = bool(i18n and i18n.language == "tr")
         self.setWindowTitle("Proje Oluştur" if tr else "Create Project")
         self.setMinimumWidth(610)
+        if tr:
+            self.setButtonText(QWizard.WizardButton.BackButton, "< Geri")
+            self.setButtonText(QWizard.WizardButton.NextButton, "İleri >")
+            self.setButtonText(QWizard.WizardButton.FinishButton, "Projeyi Oluştur")
+            self.setButtonText(QWizard.WizardButton.CancelButton, "İptal")
 
         info = QWizardPage()
         info.setTitle("Proje Oluştur" if tr else "Create Project")

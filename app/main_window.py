@@ -48,7 +48,7 @@ from app.pages.projects_page import ProjectsPage
 from app.pages.review_inbox_page import ReviewInboxPage
 from app.pages.settings_page import SettingsPage
 from app.services.async_tasks import AsyncTaskRunner
-from app.services.change_detection_service import ChangeDetectionService
+from app.services.change_detection_service import ChangeDetectionService, merge_review_summaries
 from app.services.credential_store import create_default_credential_store
 from app.services.local_git_service import LocalGitService
 from app.services.project_service import ProjectService
@@ -116,6 +116,9 @@ class MainWindow(QMainWindow):
         self.current_project_id = saved_project_id if saved_project_id and self.database.get_project(saved_project_id) else self.database.default_project_id()
         self._review_summaries: list[ReviewSummary] = []
         self._review_refresh_in_progress = False
+        self._review_refresh_pending = False
+        self._local_watch_in_progress = False
+        self._last_local_heads: dict[int, str] = {}
 
         self.setWindowTitle(f"{APP_NAME} — Local-first Developer Workspace")
         self.setMinimumSize(1040, 680)
@@ -142,6 +145,17 @@ class MainWindow(QMainWindow):
         self.repository_poll_timer = QTimer(self)
         self.repository_poll_timer.timeout.connect(self.refresh_review_inbox)
         self._configure_repository_polling()
+
+        # Fast, lightweight local-Git watcher. It only checks HEAD hashes every
+        # two seconds and starts the heavier review comparison only when HEAD changes.
+        # This keeps every visible page current without requiring page navigation.
+        self.local_watch_timer = QTimer(self)
+        self.local_watch_timer.setInterval(2000)
+        self.local_watch_timer.timeout.connect(self._check_local_repositories_live)
+        self.local_watch_timer.start()
+        app = QApplication.instance()
+        if app is not None:
+            app.applicationStateChanged.connect(self._application_state_changed)
         saved_page = str(self.settings.value("session/last_page", "dashboard") or "dashboard")
         self._navigate(saved_page if saved_page in self.pages else "dashboard")
         QTimer.singleShot(0, self._startup_refresh)
@@ -219,7 +233,7 @@ class MainWindow(QMainWindow):
         self.project_detail_page = ProjectDetailPage(self.database, self.i18n)
         self.decisions_page = DecisionsPage(self.database, self.i18n)
         self.architecture_page = ArchitecturePage(self.database, self.i18n)
-        self.review_page = ReviewInboxPage(self.i18n)
+        self.review_page = ReviewInboxPage(self.database, self.i18n)
         self.github_page = GitHubPage(
             self.database, self.credential_store, self.github_config, self.browser_launcher, self.i18n
         )
@@ -386,7 +400,7 @@ class MainWindow(QMainWindow):
         self.trash_action = QAction("Trash…", self)
         self.trash_action.triggered.connect(self.open_trash)
         self.shortcuts_action = QAction("Keyboard Shortcuts", self)
-        self.shortcuts_action.triggered.connect(lambda: ShortcutsDialog(self).exec())
+        self.shortcuts_action.triggered.connect(lambda: ShortcutsDialog(self.i18n, self).exec())
         self.about_action = QAction("About DevNest", self)
         self.about_action.triggered.connect(self.show_about)
 
@@ -823,7 +837,10 @@ class MainWindow(QMainWindow):
         note = self.database.get_note(note_id)
         if note is None:
             return
-        title, ok = QInputDialog.getText(self, "Rename Note", "Title:", text=note.title)
+        title, ok = QInputDialog.getText(
+            self, "Notu Yeniden Adlandır" if self.i18n.language == "tr" else "Rename Note",
+            "Yeni başlık:" if self.i18n.language == "tr" else "Title:", text=note.title
+        )
         if not ok:
             return
         try:
@@ -853,8 +870,8 @@ class MainWindow(QMainWindow):
             return
         answer = QMessageBox.question(
             self,
-            "Move to Trash",
-            f'Move "{note.title}" to Trash? You can restore it later.',
+            "Çöp Kutusuna Taşı" if self.i18n.language == "tr" else "Move to Trash",
+            (f'"{note.title}" çöp kutusuna taşınsın mı? Daha sonra geri yükleyebilirsiniz.' if self.i18n.language == "tr" else f'Move "{note.title}" to Trash? You can restore it later.'),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
@@ -880,7 +897,7 @@ class MainWindow(QMainWindow):
 
     def open_trash(self) -> None:
         self.flush_pending_saves()
-        dialog = TrashDialog(self.database, self)
+        dialog = TrashDialog(self.database, self.i18n, self)
         dialog.exec()
         if dialog.changed:
             self.refresh_sidebar(self.current_note_id)
@@ -905,9 +922,9 @@ class MainWindow(QMainWindow):
             self.save_label.setText(self.i18n.t("status.saved"))
             self.refresh_sidebar(self.current_note_id)
         except DatabaseError as exc:
-            self.save_label.setText("Save failed")
+            self.save_label.setText("Kaydetme başarısız" if self.i18n.language == "tr" else "Save failed")
             logger.exception("Autosave failed")
-            QMessageBox.critical(self, "Save Failed", str(exc))
+            QMessageBox.critical(self, "Not Kaydedilemedi" if self.i18n.language == "tr" else "Save Failed", str(exc))
 
     def save_current_diagram(self) -> None:
         self.diagram_timer.stop()
@@ -918,7 +935,7 @@ class MainWindow(QMainWindow):
             self._diagram_dirty = False
         except DatabaseError as exc:
             logger.exception("Diagram save failed")
-            QMessageBox.critical(self, "Diagram Save Failed", str(exc))
+            QMessageBox.critical(self, "Diyagram Kaydedilemedi" if self.i18n.language == "tr" else "Diagram Save Failed", str(exc))
 
     def flush_pending_saves(self) -> None:
         self.save_current_note()
@@ -929,7 +946,7 @@ class MainWindow(QMainWindow):
         if self._loading_note:
             return
         self._dirty = True
-        self.save_label.setText("Saving…" if self.preferences.autosave_enabled else "Modified")
+        self.save_label.setText(("Kaydediliyor…" if self.preferences.autosave_enabled else "Değiştirildi") if self.i18n.language == "tr" else ("Saving…" if self.preferences.autosave_enabled else "Modified"))
         if self.preferences.autosave_enabled:
             self.autosave_timer.start(self.preferences.autosave_delay_ms)
 
@@ -968,13 +985,16 @@ class MainWindow(QMainWindow):
         self.editor.show_find_bar()
 
     def import_txt(self) -> None:
-        filename, _ = QFileDialog.getOpenFileName(self, "Import TXT", "", "Text Files (*.txt);;All Files (*)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "TXT İçe Aktar" if self.i18n.language == "tr" else "Import TXT", "",
+            "Metin Dosyaları (*.txt);;Tüm Dosyalar (*)" if self.i18n.language == "tr" else "Text Files (*.txt);;All Files (*)"
+        )
         if filename:
             self._import_path(Path(filename))
 
     def _import_path(self, path: Path) -> None:
         if path.suffix.lower() != ".txt":
-            QMessageBox.warning(self, "Import", "DevNest imports .txt files only.")
+            QMessageBox.warning(self, "İçe Aktarma" if self.i18n.language == "tr" else "Import", "DevNest yalnızca .txt dosyalarını içe aktarır." if self.i18n.language == "tr" else "DevNest imports .txt files only.")
             return
         try:
             text = read_utf8_text(path)
@@ -988,7 +1008,7 @@ class MainWindow(QMainWindow):
             self.open_note(note.id)
         except (OSError, UnicodeError, DatabaseError) as exc:
             logger.exception("TXT import failed for %s", path)
-            QMessageBox.critical(self, "Import Failed", f"Could not import the file.\n\n{exc}")
+            QMessageBox.critical(self, "İçe Aktarma Başarısız" if self.i18n.language == "tr" else "Import Failed", (f"Dosya içe aktarılamadı.\n\n{exc}" if self.i18n.language == "tr" else f"Could not import the file.\n\n{exc}"))
 
     def export_note(self, note_id: int | None) -> None:
         if note_id is None:
@@ -999,7 +1019,10 @@ class MainWindow(QMainWindow):
         if note is None:
             return
         default_name = self._safe_filename(note.title) + ".txt"
-        filename, _ = QFileDialog.getSaveFileName(self, "Export Note as TXT", default_name, "Text Files (*.txt)")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Notu TXT Olarak Dışa Aktar" if self.i18n.language == "tr" else "Export Note as TXT",
+            default_name, "Metin Dosyaları (*.txt)" if self.i18n.language == "tr" else "Text Files (*.txt)"
+        )
         if not filename:
             return
         path = Path(filename)
@@ -1008,8 +1031,8 @@ class MainWindow(QMainWindow):
         if path.exists():
             answer = QMessageBox.question(
                 self,
-                "Overwrite File",
-                f'"{path.name}" already exists. Overwrite it?',
+                "Dosyanın Üzerine Yaz" if self.i18n.language == "tr" else "Overwrite File",
+                (f'"{path.name}" zaten var. Üzerine yazılsın mı?' if self.i18n.language == "tr" else f'"{path.name}" already exists. Overwrite it?'),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -1023,10 +1046,10 @@ class MainWindow(QMainWindow):
                 doc.setHtml(note.content_html)
                 plain = doc.toPlainText()
             write_utf8_text(path, export_internal_plain_text(plain))
-            self.statusBar().showMessage(f"Exported {path.name}", 3000)
+            self.statusBar().showMessage((f"{path.name} dışa aktarıldı" if self.i18n.language == "tr" else f"Exported {path.name}"), 3000)
         except OSError as exc:
             logger.exception("TXT export failed for %s", path)
-            QMessageBox.critical(self, "Export Failed", f"Could not write the file.\n\n{exc}")
+            QMessageBox.critical(self, "Dışa Aktarma Başarısız" if self.i18n.language == "tr" else "Export Failed", (f"Dosya yazılamadı.\n\n{exc}" if self.i18n.language == "tr" else f"Could not write the file.\n\n{exc}"))
 
     @staticmethod
     def _safe_filename(title: str) -> str:
@@ -1273,11 +1296,11 @@ class MainWindow(QMainWindow):
                 self.decisions_page.open_decision(item_id)
 
     def _add_local_repository_async(self, project_id: int, path: str) -> None:
-        self.statusBar().showMessage("Checking local Git repository…")
+        self.statusBar().showMessage("Yerel Git deposu kontrol ediliyor…" if self.i18n.language == "tr" else "Checking local Git repository…")
         self.task_runner.submit(
             lambda: self.repository_service.inspect_local_repository(path),
             lambda info: self._local_repository_ready(project_id, path, info),
-            lambda exc: QMessageBox.warning(self, "Local Repository", str(exc)),
+            lambda exc: QMessageBox.warning(self, "Yerel Git Deposu" if self.i18n.language == "tr" else "Local Repository", str(exc)),
             lambda: self.statusBar().clearMessage(),
         )
 
@@ -1285,20 +1308,20 @@ class MainWindow(QMainWindow):
         try:
             repo = self.repository_service.persist_local_repository(project_id, path, info)
         except Exception as exc:
-            QMessageBox.warning(self, "Local Repository", str(exc))
+            QMessageBox.warning(self, "Yerel Git Deposu" if self.i18n.language == "tr" else "Local Repository", str(exc))
             return
         self.project_detail_page.set_project(project_id)
         self.projects_page.refresh()
         self.dashboard_page.refresh()
         self.repository_status_label.setText(f"Repository: {(info.branch or 'detached')} @ {info.head_sha[:8]}")
-        self.statusBar().showMessage(f"Linked local repository: {repo.full_name or repo.name}", 3500)
+        self.statusBar().showMessage((f"Yerel depo bağlandı: {repo.full_name or repo.name}" if self.i18n.language == "tr" else f"Linked local repository: {repo.full_name or repo.name}"), 3500)
         self.refresh_review_inbox()
 
     def _refresh_repository_async(self, repository_id: int) -> None:
         repository = self.database.get_repository(repository_id)
         if repository is None:
             return
-        self.statusBar().showMessage("Checking repository…")
+        self.statusBar().showMessage("Depo kontrol ediliyor…" if self.i18n.language == "tr" else "Checking repository…")
 
         def work():
             if repository.local_git_root or repository.local_path:
@@ -1330,7 +1353,7 @@ class MainWindow(QMainWindow):
         self.database.update_repository_sync(repository_id, head, source, branch=branch)
         self.repository_status_label.setText(f"Repository: {branch or 'detached'} @ {head[:8]}")
         self.project_detail_page.set_project(self.current_project_id)
-        self.statusBar().showMessage("Repository state refreshed.", 2500)
+        self.statusBar().showMessage("Depo durumu yenilendi." if self.i18n.language == "tr" else "Repository state refreshed.", 2500)
         self.refresh_review_inbox()
 
     def _repository_refresh_failed(self, repository_id: int, exc: Exception) -> None:
@@ -1423,11 +1446,11 @@ class MainWindow(QMainWindow):
     def _refresh_decision_status(self) -> None:
         decision_id = self.decisions_page.current_decision_id
         if decision_id is None:
-            self.decisions_page.review_badge.set_status(ReviewStatus.NOT_REVIEWED)
+            self.decisions_page.set_review_status(ReviewStatus.NOT_REVIEWED, has_links=False)
             return
         links = self.database.list_resource_links("decision", decision_id)
         status = self._aggregate_cached_status("decision", str(decision_id), "") if links else ReviewStatus.NOT_REVIEWED
-        self.decisions_page.review_badge.set_status(status)
+        self.decisions_page.set_review_status(status, has_links=bool(links))
 
     def _apply_note_diagram_statuses(self) -> None:
         if self.current_note_id is None:
@@ -1483,7 +1506,11 @@ class MainWindow(QMainWindow):
                 resource_parent_id=resource_parent_id,
             )
         except DatabaseError as exc:
-            QMessageBox.warning(self, "Link Resource", str(exc))
+            QMessageBox.warning(
+                self,
+                "Kod Bağlanamadı" if self.i18n.language == "tr" else "Could Not Connect Code",
+                str(exc),
+            )
             return
         if resource_type == "note":
             self.refresh_note_resources()
@@ -1491,17 +1518,29 @@ class MainWindow(QMainWindow):
             self.decisions_page.refresh_resources()
         else:
             self.architecture_page._selection_changed()
+        tr = self.i18n.language == "tr"
         answer = QMessageBox.question(
-            self, "Resource Linked",
-            "Use the repository's current commit as the human review baseline?\n\n"
-            "Choose No to leave this knowledge as Not Reviewed.",
+            self,
+            "Takibi Şimdi Başlat?" if tr else "Start Tracking Now?",
+            (
+                "Kod bağlantısı oluşturuldu.\n\n"
+                "DevNest'in bundan SONRA yapılan kod değişikliklerini fark edebilmesi için bir başlangıç commit'i gerekir. "
+                "‘Evet’ derseniz deponun şu anki commit'i başlangıç kabul edilir. Bundan sonra bağlı dosya/klasör değişirse karar/not otomatik olarak İncelenecekler'e gelir.\n\n"
+                "Önerilen seçenek: Evet."
+                if tr else
+                "The code connection was created.\n\n"
+                "DevNest needs a starting commit before it can detect LATER code changes. Choose Yes to use the repository's current commit as that starting point. "
+                "After that, changes to the linked file/folder automatically move this decision/note to Needs Review.\n\n"
+                "Recommended choice: Yes."
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
         )
         if answer == QMessageBox.StandardButton.Yes:
             self._mark_resource_reviewed(resource_type, resource_id, resource_parent_id)
         else:
             self.refresh_review_inbox()
+            self._refresh_decision_status()
 
     def _compute_review_summaries_worker(self, resource_type: str | None = None,
                                          resource_id: str | int | None = None,
@@ -1517,9 +1556,63 @@ class MainWindow(QMainWindow):
             detector = ChangeDetectionService(worker_db, LocalGitService(), github_client)
             links = worker_db.list_resource_links(resource_type, resource_id, resource_parent_id)
             monitorable = {"repository", "directory", "file", "branch"}
-            return [detector.evaluate(link) for link in links if link.target_type in monitorable]
+            raw = [detector.evaluate(link) for link in links if link.target_type in monitorable]
+            return merge_review_summaries(raw)
         finally:
             worker_db.close()
+
+    def _local_repository_heads_worker(self) -> dict[int, str]:
+        worker_db = Database(self.database.path)
+        local_git = LocalGitService()
+        result: dict[int, str] = {}
+        try:
+            for repository in worker_db.list_repositories():
+                root = repository.local_git_root or repository.local_path
+                if not root:
+                    continue
+                try:
+                    result[repository.id] = local_git.get_head_sha(root)
+                except Exception:
+                    # A missing/moved local repository must not interrupt the live UI.
+                    continue
+        finally:
+            worker_db.close()
+        return result
+
+    def _check_local_repositories_live(self) -> None:
+        if self._local_watch_in_progress:
+            return
+        self._local_watch_in_progress = True
+        self.task_runner.submit(
+            self._local_repository_heads_worker,
+            self._local_heads_ready,
+            lambda _exc: None,
+            lambda: setattr(self, "_local_watch_in_progress", False),
+        )
+
+    def _local_heads_ready(self, heads: dict[int, str]) -> None:
+        previous = self._last_local_heads
+        self._last_local_heads = dict(heads)
+        if not previous:
+            return
+        changed = any(previous.get(repository_id) != sha for repository_id, sha in heads.items() if repository_id in previous)
+        if not changed:
+            return
+        self.statusBar().showMessage(
+            "Yeni yerel Git commit'i algılandı — ekranlar otomatik yenileniyor…"
+            if self.i18n.language == "tr" else
+            "New local Git commit detected — refreshing the interface automatically…",
+            2500,
+        )
+        self.refresh_review_inbox()
+
+    def _application_state_changed(self, state) -> None:
+        if state == Qt.ApplicationState.ApplicationActive:
+            # When the user returns from an editor/terminal, check immediately.
+            # refresh_review_inbox also covers GitHub-only repositories, while the
+            # lightweight HEAD watcher handles local repositories every two seconds.
+            self._check_local_repositories_live()
+            self.refresh_review_inbox()
 
     def _configure_repository_polling(self) -> None:
         if not hasattr(self, "repository_poll_timer"):
@@ -1538,15 +1631,25 @@ class MainWindow(QMainWindow):
 
     def refresh_review_inbox(self) -> None:
         if self._review_refresh_in_progress:
+            # Never drop a refresh request. A commit may happen while the previous
+            # comparison is still running; run once more immediately afterwards.
+            self._review_refresh_pending = True
             return
+        self._review_refresh_pending = False
         self._review_refresh_in_progress = True
-        self.review_page.subtitle.setText("Checking repository state… Local cached UI remains available.")
+        self.review_page.set_checking()
         self.task_runner.submit(
             self._compute_review_summaries_worker,
             self._review_refresh_ready,
             self._review_refresh_failed,
-            lambda: setattr(self, "_review_refresh_in_progress", False),
+            self._review_refresh_finished,
         )
+
+    def _review_refresh_finished(self) -> None:
+        self._review_refresh_in_progress = False
+        if self._review_refresh_pending:
+            self._review_refresh_pending = False
+            QTimer.singleShot(0, self.refresh_review_inbox)
 
     def _review_refresh_ready(self, summaries: list[ReviewSummary]) -> None:
         self._review_summaries = summaries
@@ -1555,35 +1658,54 @@ class MainWindow(QMainWindow):
         current = sum(1 for s in summaries if s.status == ReviewStatus.CURRENT)
         self.dashboard_page.refresh(needs, current)
         self.refresh_note_resources()
+        self.decisions_page.set_review_summaries(summaries)
         self._refresh_decision_status()
         self.architecture_page.set_review_summaries(summaries)
         self._apply_note_diagram_statuses()
-        self.statusBar().showMessage(f"Repository review check complete · {needs} items need review.", 3000)
+        # Keep currently visible project pages in sync as soon as the background
+        # comparison finishes; navigation is never used as a refresh mechanism.
+        self.project_detail_page.set_project(self.current_project_id)
+        self.projects_page.refresh()
+        message = (
+            f"Depo kontrolü tamamlandı · {needs} öğe yeniden incelenmeli."
+            if self.i18n.language == "tr" else
+            f"Repository review check complete · {needs} item(s) need review."
+        )
+        self.statusBar().showMessage(message, 3000)
 
     def _review_refresh_failed(self, exc: Exception) -> None:
-        self.review_page.subtitle.setText(f"Repository check unavailable: {exc}. Local features remain available.")
+        self.review_page.set_check_failed(str(exc))
 
     def _view_resource_changes(self, resource_type: str, resource_id, resource_parent_id=None) -> None:
         if resource_id in (None, 0, ""):
             return
-        self.statusBar().showMessage("Loading changes since review…")
+        self.statusBar().showMessage("Son kontrolden sonraki değişiklikler yükleniyor…" if self.i18n.language == "tr" else "Loading changes since review…")
         self.task_runner.submit(
             lambda: self._compute_review_summaries_worker(resource_type, resource_id, resource_parent_id),
             self._show_resource_summaries,
-            lambda exc: QMessageBox.warning(self, "View Changes", str(exc)),
+            lambda exc: QMessageBox.warning(self, "Değişiklikler" if self.i18n.language == "tr" else "View Changes", str(exc)),
             lambda: self.statusBar().clearMessage(),
         )
 
     def _show_resource_summaries(self, summaries: list[ReviewSummary]) -> None:
         if not summaries:
-            QMessageBox.information(self, "View Changes", "This knowledge has no monitorable repository links yet.")
+            QMessageBox.information(
+                self, "Değişiklikler" if self.i18n.language == "tr" else "View Changes",
+                "Bu bilgi henüz değişiklik takibi yapılabilen bir depo, klasör veya dosyaya bağlı değil." if self.i18n.language == "tr" else "This knowledge has no monitorable repository links yet.",
+            )
             return
         preferred = next((s for s in summaries if s.status == ReviewStatus.NEEDS_REVIEW), summaries[0])
         if preferred.status == ReviewStatus.NOT_REVIEWED:
-            QMessageBox.information(self, "Not Reviewed", "Create a review baseline before comparing changes.")
+            QMessageBox.information(
+                self, "Takip Henüz Başlamadı" if self.i18n.language == "tr" else "Tracking Has Not Started",
+                "Kod bağlı, ancak başlangıç commit'i seçilmemiş. Önce ‘Takibi başlat / Kontrol ettim’ düğmesine basın. Bundan sonraki commitler karşılaştırılabilir." if self.i18n.language == "tr" else "Code is connected, but no starting commit has been saved. Choose ‘Start tracking / Mark checked’ first. Later commits can then be compared.",
+            )
             return
         if preferred.status == ReviewStatus.CANNOT_COMPARE and not preferred.changed_files:
-            QMessageBox.warning(self, "Cannot Compare", preferred.message or "Repository history cannot currently be compared.")
+            QMessageBox.warning(
+                self, "Şu Anda Karşılaştırılamıyor" if self.i18n.language == "tr" else "Cannot Compare",
+                preferred.message or ("Depo geçmişi şu anda karşılaştırılamıyor." if self.i18n.language == "tr" else "Repository history cannot currently be compared."),
+            )
             return
         self._show_review_details(preferred)
 
@@ -1595,13 +1717,16 @@ class MainWindow(QMainWindow):
             return
         links = self.database.list_resource_links(resource_type, resource_id, resource_parent_id)
         if not links:
-            QMessageBox.information(self, "Mark as Reviewed", "Link this knowledge to a repository first.")
+            QMessageBox.information(
+                self, "Önce Kod Bağlayın" if self.i18n.language == "tr" else "Connect Code First",
+                "DevNest'in neyi takip edeceğini bilmesi için önce bu bilgiyi bir depo, klasör veya dosyaya bağlayın." if self.i18n.language == "tr" else "Connect this knowledge to a repository, folder or file first so DevNest knows what to watch.",
+            )
             return
-        self.statusBar().showMessage("Resolving current repository HEAD…")
+        self.statusBar().showMessage("Deponun güncel commit'i bulunuyor…" if self.i18n.language == "tr" else "Resolving current repository HEAD…")
         self.task_runner.submit(
             lambda: self._resolve_current_heads_worker(links),
             lambda resolved: self._confirm_mark_reviewed(links, resolved),
-            lambda exc: QMessageBox.warning(self, "Cannot Compare", str(exc)),
+            lambda exc: QMessageBox.warning(self, "Şu Anda Karşılaştırılamıyor" if self.i18n.language == "tr" else "Cannot Compare", str(exc)),
             lambda: self.statusBar().clearMessage(),
         )
 
@@ -1640,11 +1765,17 @@ class MainWindow(QMainWindow):
     def _confirm_mark_reviewed(self, links, resolved: dict[int, tuple[str, str | None]]) -> None:
         lines = [f"{(self.database.get_repository(rid).full_name or self.database.get_repository(rid).name)} @ {sha[:8]}"
                  for rid, (sha, _branch) in resolved.items() if self.database.get_repository(rid)]
+        tr = self.i18n.language == "tr"
         answer = QMessageBox.question(
-            self, "Mark as Reviewed",
-            "Mark this knowledge as reviewed at the current repository commit?\n\n" + "\n".join(lines),
+            self, "Takibi Başlat / Kontrol Noktasını Güncelle" if tr else "Start Tracking / Update Check Point",
+            (("Aşağıdaki güncel commit'i başlangıç noktası olarak kaydetmek istiyor musunuz?\n\n"
+              "Bundan sonra bağlı kod değişirse DevNest bu bilgiyi otomatik olarak İncelenecekler'e taşır.\n\n")
+             if tr else
+             ("Save the current commit below as the reference point?\n\n"
+              "After this, DevNest automatically moves this knowledge to Needs Review when linked code changes.\n\n"))
+            + "\n".join(lines),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -1653,37 +1784,39 @@ class MainWindow(QMainWindow):
             if current:
                 sha, branch = current
                 self.review_service.mark_reviewed(link, sha, branch)
-        self.statusBar().showMessage("✓ Review baseline updated.", 2500)
+        self.statusBar().showMessage("✓ Takip başlangıç noktası güncellendi." if self.i18n.language == "tr" else "✓ Review baseline updated.", 2500)
         self.refresh_review_inbox()
 
     def _mark_summary_reviewed(self, summary: ReviewSummary) -> None:
-        if not summary.current_sha:
-            self._mark_resource_reviewed(
-                summary.resource_link.resource_type,
-                summary.resource_link.resource_id,
-                summary.resource_link.resource_parent_id,
-            )
-            return
-        answer = QMessageBox.question(
-            self, "Mark as Reviewed",
-            f"Mark this knowledge as reviewed at {summary.current_sha[:10]}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+        # A review card may represent several linked files in the same repository.
+        # Update all links for the knowledge item together so one path cannot remain
+        # stale and create what looks like a duplicate review card/commit.
+        self._mark_resource_reviewed(
+            summary.resource_link.resource_type,
+            summary.resource_link.resource_id,
+            summary.resource_link.resource_parent_id,
         )
-        if answer == QMessageBox.StandardButton.Yes:
-            self.review_service.mark_reviewed(summary.resource_link, summary.current_sha, summary.branch)
-            self.refresh_review_inbox()
 
     def show_about(self) -> None:
+        tr = self.i18n.language == "tr"
         QMessageBox.about(
             self,
-            f"About {APP_NAME}",
-            f"<b>{APP_NAME} {VERSION}</b><br><br>"
-            "A GitHub-connected, local-first developer knowledge workspace.<br><br>"
-            "Projects, notes, engineering decisions, architecture maps and review baselines stay local. "
-            "GitHub integration is optional and read-only.<br><br>"
-            "No DevNest account, telemetry, cloud database or AI service is required.<br><br>"
-            f"Database: {database_path()}",
+            f"{APP_NAME} Hakkında" if tr else f"About {APP_NAME}",
+            (
+                f"<b>{APP_NAME} {VERSION}</b><br><br>"
+                "GitHub bağlantılı, yerel çalışan geliştirici bilgi çalışma alanı.<br><br>"
+                "Projeler, notlar, teknik kararlar, mimari haritalar ve kontrol noktaları bu bilgisayarda kalır. "
+                "GitHub bağlantısı isteğe bağlıdır ve yalnızca okuma yetkisi kullanır.<br><br>"
+                "DevNest hesabı, telemetri, bulut veritabanı veya AI servisi gerekmez.<br><br>"
+                f"Veritabanı: {database_path()}"
+                if tr else
+                f"<b>{APP_NAME} {VERSION}</b><br><br>"
+                "A GitHub-connected, local-first developer knowledge workspace.<br><br>"
+                "Projects, notes, engineering decisions, architecture maps and review baselines stay local. "
+                "GitHub integration is optional and read-only.<br><br>"
+                "No DevNest account, telemetry, cloud database or AI service is required.<br><br>"
+                f"Database: {database_path()}"
+            ),
         )
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
@@ -1726,6 +1859,8 @@ class MainWindow(QMainWindow):
             self.github_page.cancel_event.set()
         if hasattr(self, "repository_poll_timer"):
             self.repository_poll_timer.stop()
+        if hasattr(self, "local_watch_timer"):
+            self.local_watch_timer.stop()
         self.settings.set_value("window/geometry", self.saveGeometry())
         self.settings.set_value("window/splitter", self.splitter.saveState())
         self.settings.set_value("window/tab_index", self.tabs.currentIndex())
@@ -1737,5 +1872,5 @@ class MainWindow(QMainWindow):
 
     def _show_database_error(self, exc: DatabaseError) -> None:
         logger.exception("Database operation failed")
-        QMessageBox.critical(self, "Database Error", str(exc))
+        QMessageBox.critical(self, "Veritabanı Hatası" if self.i18n.language == "tr" else "Database Error", str(exc))
 
