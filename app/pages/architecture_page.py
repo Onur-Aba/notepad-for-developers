@@ -6,6 +6,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMenu,
+    QInputDialog,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -56,6 +59,8 @@ class ArchitecturePage(QWidget):
         self.diagrams_label.setObjectName("secondaryPanelTitle")
         left_layout.addWidget(self.diagrams_label)
         self.list = QListWidget()
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._show_diagram_menu)
         self.list.currentItemChanged.connect(self._diagram_selected)
         left_layout.addWidget(self.list, 1)
         self.diagram = DiagramView()
@@ -138,6 +143,44 @@ class ArchitecturePage(QWidget):
         else:
             self.diagram.load_data({"items": [], "edges": [], "paths": []})
             self.note_id = None
+
+    def _show_diagram_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        note_id = int(item.data(Qt.ItemDataRole.UserRole))
+        note = self.database.get_note(note_id)
+        if note is None:
+            return
+        tr = self.i18n.language == "tr"
+        menu = QMenu(self)
+        rename = menu.addAction("Mimari adını değiştir…" if tr else "Rename architecture…")
+        delete = menu.addAction("Mimari diyagramını sil…" if tr else "Delete architecture diagram…")
+        chosen = menu.exec(self.list.mapToGlobal(pos))
+        if chosen == rename:
+            title, ok = QInputDialog.getText(
+                self, "Mimari adını değiştir" if tr else "Rename architecture",
+                "Yeni ad:" if tr else "New name:", text=note.title,
+            )
+            if ok and title.strip():
+                self.database.rename_note(note_id, title.strip())
+                self.refresh()
+        elif chosen == delete:
+            answer = QMessageBox.question(
+                self, "Mimari diyagramını sil" if tr else "Delete architecture diagram",
+                (
+                    f'“{note.title}” için çizilen diyagram silinsin mi?\n\nNotun yazılı içeriği silinmez. Diyagram kutularına ait DevNest kod bağlantıları kaldırılır.'
+                    if tr else
+                    f'Delete the diagram drawn for “{note.title}”?\n\nThe note text is preserved. DevNest code links attached to diagram nodes are removed.'
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self.save()
+                self.database.delete_diagram(note_id)
+                self.note_id = None
+                self.refresh()
 
     def _diagram_selected(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
         self.save()

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal, Qt
-from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from app.database import Database, DatabaseError
+from app.dialogs.project_delete import DeleteProjectDialog
 from app.i18n import I18n
 from app.services.project_service import ProjectService
 from app.services.repository_service import RepositoryService
@@ -110,12 +111,29 @@ class ProjectsPage(QWidget):
             open_button.setObjectName("primaryButton")
             open_button.setToolTip(self.i18n.t("tip.projects.open"))
             open_button.clicked.connect(lambda _checked=False, pid=project.id: self.projectOpened.emit(pid))
+            edit = QPushButton("Düzenle" if self.i18n.language == "tr" else "Edit")
+            edit.setToolTip(
+                "Projenin adını ve açıklamasını değiştirir. Notlar, kararlar ve depo bağlantıları aynı kalır."
+                if self.i18n.language == "tr" else
+                "Change the project name and description. Notes, decisions and repository connections stay the same."
+            )
+            edit.clicked.connect(lambda _checked=False, pid=project.id: self._edit_project(pid))
             archive = QPushButton(self.i18n.t("projects.archive"))
             archive.setToolTip(self.i18n.t("tip.projects.archive"))
             archive.clicked.connect(lambda _checked=False, pid=project.id, n=project.name: self._archive(pid, n))
+            delete = QPushButton("Sil" if self.i18n.language == "tr" else "Delete")
+            delete.setObjectName("dangerButton")
+            delete.setToolTip(
+                "Projeyi ve bu projeye ait DevNest içeriğini Çöp Kutusu'na taşır. İki ayrı doğrulama adımı vardır; işlem hemen kalıcı silme yapmaz."
+                if self.i18n.language == "tr" else
+                "Move the project and its DevNest contents to Trash. There are two confirmation steps; this does not permanently delete immediately."
+            )
+            delete.clicked.connect(lambda _checked=False, pid=project.id: self._delete_project(pid))
             row.addLayout(text, 1)
             row.addWidget(open_button)
+            row.addWidget(edit)
             row.addWidget(archive)
+            row.addWidget(delete)
             self.cards.addWidget(frame)
         self.cards.addStretch(1)
 
@@ -142,6 +160,31 @@ class ProjectsPage(QWidget):
         except DatabaseError as exc:
             QMessageBox.critical(self, "Proje Oluşturulamadı" if self.i18n.language == "tr" else "Create Project Failed", str(exc))
 
+    def _edit_project(self, project_id: int) -> None:
+        project = self.database.get_project(project_id)
+        if project is None:
+            return
+        tr = self.i18n.language == "tr"
+        name, ok = QInputDialog.getText(
+            self, "Projeyi düzenle" if tr else "Edit project",
+            "Proje adı:" if tr else "Project name:", text=project.name,
+        )
+        if not ok or not name.strip():
+            return
+        description, ok = QInputDialog.getText(
+            self, "Projeyi düzenle" if tr else "Edit project",
+            "Kısa açıklama:" if tr else "Short description:", text=project.description,
+        )
+        if not ok:
+            return
+        try:
+            self.project_service.rename(project_id, name.strip(), description.strip())
+        except DatabaseError as exc:
+            QMessageBox.critical(self, "Proje Güncellenemedi" if tr else "Update Project Failed", str(exc))
+            return
+        self.refresh()
+        self.projectsChanged.emit()
+
     def _archive(self, project_id: int, name: str) -> None:
         if self.i18n.language == "tr":
             title = "Projeyi Arşivle"
@@ -157,3 +200,26 @@ class ProjectsPage(QWidget):
             self.project_service.archive(project_id)
             self.refresh()
             self.projectsChanged.emit()
+    def _delete_project(self, project_id: int) -> None:
+        project = self.database.get_project(project_id)
+        if project is None:
+            return
+        try:
+            dialog = DeleteProjectDialog(self.database, project_id, self.i18n, self)
+        except (DatabaseError, ValueError) as exc:
+            QMessageBox.critical(
+                self, "Proje Silinemedi" if self.i18n.language == "tr" else "Delete Project Failed", str(exc)
+            )
+            return
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            self.project_service.move_to_trash(project_id)
+        except DatabaseError as exc:
+            QMessageBox.critical(
+                self, "Proje Silinemedi" if self.i18n.language == "tr" else "Delete Project Failed", str(exc)
+            )
+            return
+        self.refresh()
+        self.projectsChanged.emit()
+

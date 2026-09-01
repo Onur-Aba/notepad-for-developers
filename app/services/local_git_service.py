@@ -111,6 +111,57 @@ class LocalGitService:
                 commits.append(CommitInfo(sha=parts[0], author=parts[1], authored_at=parts[2], message=parts[3]))
         return commits
 
+    def get_commit_history(self, path: str | Path, limit: int | None = None) -> list[tuple[CommitInfo, list[ChangedFile]]]:
+        """Return repository history newest-first with the files changed by each commit.
+
+        This intentionally uses one read-only ``git log --name-status`` command instead
+        of one subprocess per commit, so even long project histories can be loaded in a
+        background worker without hammering the repository.
+        """
+        fmt = "%x1e%H%x1f%an%x1f%aI%x1f%s"
+        args = ["log", "--date=iso-strict", f"--format={fmt}", "--name-status", "--find-renames", "--root"]
+        if limit is not None:
+            args.insert(1, f"--max-count={max(1, int(limit))}")
+        output = self._run(path, *args)
+        history: list[tuple[CommitInfo, list[ChangedFile]]] = []
+        for record in output.split("\x1e"):
+            record = record.strip("\n\r ")
+            if not record:
+                continue
+            lines = record.splitlines()
+            header = lines[0].split("\x1f", 3)
+            if len(header) != 4:
+                continue
+            commit = CommitInfo(sha=header[0].strip(), author=header[1].strip() or None,
+                                authored_at=header[2].strip() or None, message=header[3].strip())
+            changed: list[ChangedFile] = []
+            for line in lines[1:]:
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                status = parts[0].strip()
+                if status.startswith("R") and len(parts) >= 3:
+                    changed.append(ChangedFile(status="R", path=normalize_repo_path(parts[2]),
+                                               previous_path=normalize_repo_path(parts[1])))
+                elif len(parts) >= 2:
+                    changed.append(ChangedFile(status=status[:1], path=normalize_repo_path(parts[1])))
+            history.append((commit, changed))
+        return history
+
+    def get_commit_changed_files(self, path: str | Path, sha: str) -> list[ChangedFile]:
+        output = self._run(path, "diff-tree", "--no-commit-id", "--name-status", "-r", "--root", "--find-renames", sha)
+        changed: list[ChangedFile] = []
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            status = parts[0].strip()
+            if status.startswith("R") and len(parts) >= 3:
+                changed.append(ChangedFile(status="R", path=normalize_repo_path(parts[2]), previous_path=normalize_repo_path(parts[1])))
+            elif len(parts) >= 2:
+                changed.append(ChangedFile(status=status[:1], path=normalize_repo_path(parts[1])))
+        return changed
+
     def is_commit_available(self, path: str | Path, sha: str) -> bool:
         try:
             self._run(path, "cat-file", "-e", f"{sha}^{{commit}}")

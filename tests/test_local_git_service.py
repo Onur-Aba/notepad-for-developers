@@ -62,3 +62,23 @@ def test_local_git_discovery_and_comparison(tmp_path: Path) -> None:
     assert service.get_commit_count(tmp_path, base, head) == 1
     assert service.get_commits(tmp_path, base, head)[0].message == "auth update"
     assert service.is_commit_available(tmp_path, base)
+
+
+def test_full_commit_history_includes_changed_files(tmp_path: Path) -> None:
+    _git(tmp_path, "init", "-b", "main")
+    _git(tmp_path, "config", "user.email", "devnest@example.invalid")
+    _git(tmp_path, "config", "user.name", "DevNest Test")
+    (tmp_path / "a.txt").write_text("one\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "first")
+    (tmp_path / "a.txt").write_text("two\n", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("new\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "second")
+
+    history = LocalGitService().get_commit_history(tmp_path)
+    assert [entry[0].message for entry in history] == ["second", "first"]
+    latest_files = {(item.status, item.path) for item in history[0][1]}
+    assert ("M", "a.txt") in latest_files
+    assert ("A", "b.txt") in latest_files
+    assert any(item.path == "a.txt" for item in history[1][1])

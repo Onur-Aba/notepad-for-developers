@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QMenu,
+    QInputDialog,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -27,6 +29,7 @@ class DecisionsPage(QWidget):
     linkResourceRequested = Signal(int)
     viewChangesRequested = Signal(int)
     markReviewedRequested = Signal(int)
+    decisionsChanged = Signal()
 
     def __init__(self, database: Database, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
@@ -95,6 +98,8 @@ class DecisionsPage(QWidget):
         self.list = QListWidget()
         self.list.setObjectName("decisionList")
         self.list.setSpacing(2)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._show_context_menu)
         self.list.currentItemChanged.connect(self._selection_changed)
         left_layout.addWidget(self.list_heading)
         left_layout.addWidget(self.search)
@@ -131,8 +136,13 @@ class DecisionsPage(QWidget):
         context_layout.addLayout(context_right, 2)
         editor_layout.addWidget(self.context_bar)
 
+        self.decision_heading = QLabel()
+        self.decision_heading.setObjectName("pageTitle")
+        self.decision_heading.setWordWrap(True)
+        editor_layout.addWidget(self.decision_heading)
+
         top = QHBoxLayout()
-        self.key_label = QLabel("DEC-—")
+        self.key_label = QLabel("ID: DEC-—")
         self.key_label.setObjectName("decisionKey")
         self.status_combo = QComboBox()
         self.review_badge = StatusBadge()
@@ -181,26 +191,53 @@ class DecisionsPage(QWidget):
         self.changes_button.clicked.connect(lambda: self.viewChangesRequested.emit(self.current_decision_id or 0))
         self.review_button = QPushButton()
         self.review_button.clicked.connect(lambda: self.markReviewedRequested.emit(self.current_decision_id or 0))
+        self.delete_button = QPushButton()
+        self.delete_button.setObjectName("dangerButton")
+        self.delete_button.clicked.connect(self.delete_current_decision)
         actions.addWidget(self.link_button)
         actions.addWidget(self.changes_button)
         actions.addWidget(self.review_button)
+        actions.addWidget(self.delete_button)
         actions.addStretch(1)
         editor_layout.addLayout(actions)
 
         self.empty_help = QLabel()
         self.empty_help.setObjectName("emptyInlineState")
         self.empty_help.setWordWrap(True)
-        editor_layout.addWidget(self.empty_help)
+        self.empty_help.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty_help.setMinimumHeight(220)
+        editor_layout.addWidget(self.empty_help, 1)
 
         self.editor = NoteEditor()
         editor_layout.addWidget(self.editor, 1)
+
+        # Keep a single source of truth for the right-side editing UI.  When
+        # no decision is selected we hide every editor control and show only
+        # the friendly empty state.  This is intentionally visibility-based
+        # (not merely disabled) so the user is never presented with a form
+        # that looks editable before a decision has been chosen.
+        self._editor_widgets = (
+            self.context_bar,
+            self.decision_heading,
+            self.key_label,
+            self.status_combo,
+            self.review_badge,
+            self.title_edit,
+            self.resources_box,
+            self.tracking_box,
+            self.link_button,
+            self.changes_button,
+            self.review_button,
+            self.delete_button,
+            self.editor,
+        )
 
         splitter.addWidget(left)
         splitter.addWidget(editor_wrap)
         splitter.setSizes([360, 900])
         root.addWidget(splitter, 1)
 
-        self.title_edit.textChanged.connect(self._mark_dirty)
+        self.title_edit.textChanged.connect(self._title_changed)
         self.editor.textChanged.connect(self._mark_dirty)
         self.status_combo.currentIndexChanged.connect(self._mark_dirty)
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
@@ -255,6 +292,17 @@ class DecisionsPage(QWidget):
         self.link_button.setText(self.i18n.t("decision.link"))
         self.changes_button.setText(self.i18n.t("decision.changes"))
         self.review_button.setText(self.i18n.t("decision.review"))
+        self.delete_button.setText("Kararı sil" if self.i18n.language == "tr" else "Delete decision")
+        self.delete_button.setToolTip(
+            "Bu kararı ve yalnızca DevNest içindeki bağlantılarını siler. GitHub deposuna veya kaynak koda dokunmaz."
+            if self.i18n.language == "tr" else
+            "Delete this decision and its DevNest-only links. This never deletes or changes source code on GitHub."
+        )
+        self.key_label.setToolTip(
+            "Bu değişmeyen teknik kimliktir. Kararın görünen başlığı üstte yazdığınız isimdir."
+            if self.i18n.language == "tr" else
+            "This is the stable technical ID. The visible decision heading is the name you entered above."
+        )
         self.link_button.setToolTip(self.i18n.t("tip.decision.link"))
         self.changes_button.setToolTip(self.i18n.t("tip.decision.changes"))
         self.review_button.setToolTip(self.i18n.t("tip.decision.review"))
@@ -350,11 +398,12 @@ class DecisionsPage(QWidget):
                 ReviewStatus.CANNOT_COMPARE: "Takip: Şu an karşılaştırılamıyor" if tr else "Tracking: Cannot compare",
             }.get(review_status, "Takip: Başlatılmadı" if tr else "Tracking: Not started")
             repo_prefix = "Depo: " if tr else "Repository: "
-            item = QListWidgetItem(f"{decision.decision_key}  ·  {status_text}\n{decision.title}\n{repo_prefix}{repo_line}\n{tracking_text}")
+            id_prefix = "Kimlik" if tr else "ID"
+            item = QListWidgetItem(f"{decision.title}\n{id_prefix}: {decision.decision_key} · {status_text}\n{repo_prefix}{repo_line}\n{tracking_text}")
             item.setData(Qt.ItemDataRole.UserRole, decision.id)
             item.setToolTip(
-                ("Bu kararı açar. Alt satırda kararın bağlı olduğu depo gösterilir." if self.i18n.language == "tr"
-                 else "Open this decision. The last line shows which repository the decision is connected to.")
+                ("Kararı açar. İlk satır kararın gerçek başlığıdır; DEC-xxx yalnızca değişmeyen kimliğidir. Sağ tıklayarak adını düzenleyebilir veya silebilirsiniz." if self.i18n.language == "tr"
+                 else "Open the decision. The first line is its real title; DEC-xxx is only its stable ID. Right-click to rename or delete it.")
             )
             item.setSizeHint(item.sizeHint().expandedTo(item.sizeHint()))
             self.list.addItem(item)
@@ -362,10 +411,19 @@ class DecisionsPage(QWidget):
                 target = item
         self.list.blockSignals(False)
         if target:
+            # Select without firing a second selection handler; then load the
+            # decision explicitly.  This keeps list selection and editor state
+            # synchronized even after a refresh/rebuild of the QListWidget.
+            self.list.blockSignals(True)
             self.list.setCurrentItem(target)
-        elif self.list.count():
-            self.list.setCurrentRow(0)
-        elif not decisions:
+            self.list.blockSignals(False)
+            self.open_decision(int(target.data(Qt.ItemDataRole.UserRole)))
+        else:
+            # Do not silently choose the first decision.  With no explicit
+            # selection the right side must remain an empty state until the
+            # user chooses a decision from the list.
+            self.list.clearSelection()
+            self.list.setCurrentItem(None)
             self._clear_editor()
 
     def new_decision(self) -> None:
@@ -387,11 +445,15 @@ class DecisionsPage(QWidget):
 
     def _selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
         if current is None:
+            self._clear_editor()
             return
         decision_id = int(current.data(Qt.ItemDataRole.UserRole))
         if decision_id != self.current_decision_id:
-            self.save_current()
-            self.open_decision(decision_id)
+            self.save_current(refresh_after=False)
+        # Always load the clicked decision.  In particular, a freshly created
+        # decision already has current_decision_id set before the list item is
+        # selected; the old equality guard therefore skipped the actual load.
+        self.open_decision(decision_id)
 
     def open_decision(self, decision_id: int) -> None:
         decision = self.database.get_decision(decision_id)
@@ -400,7 +462,8 @@ class DecisionsPage(QWidget):
         self._loading = True
         try:
             self.current_decision_id = decision.id
-            self.key_label.setText(decision.decision_key)
+            self.key_label.setText(("Kimlik: " if self.i18n.language == "tr" else "ID: ") + decision.decision_key)
+            self.decision_heading.setText(decision.title)
             self.title_edit.setText(decision.title)
             self.editor.setHtml(decision.content_html) if decision.content_html else self.editor.clear()
             index = self.status_combo.findData(decision.status)
@@ -412,26 +475,100 @@ class DecisionsPage(QWidget):
         finally:
             self._loading = False
 
+    def _title_changed(self) -> None:
+        if not self._loading:
+            title = self.title_edit.text().strip()
+            self.decision_heading.setText(title or ("Başlıksız karar" if self.i18n.language == "tr" else "Untitled decision"))
+        self._mark_dirty()
+
+    def _show_context_menu(self, pos) -> None:
+        item = self.list.itemAt(pos)
+        if item is None:
+            return
+        decision_id = int(item.data(Qt.ItemDataRole.UserRole))
+        decision = self.database.get_decision(decision_id)
+        if decision is None:
+            return
+        tr = self.i18n.language == "tr"
+        menu = QMenu(self)
+        open_action = menu.addAction("Aç ve düzenle" if tr else "Open and edit")
+        rename_action = menu.addAction("Başlığı değiştir…" if tr else "Rename title…")
+        menu.addSeparator()
+        delete_action = menu.addAction("Kararı sil…" if tr else "Delete decision…")
+        chosen = menu.exec(self.list.mapToGlobal(pos))
+        if chosen == open_action:
+            self.list.setCurrentItem(item)
+            self.open_decision(decision_id)
+            self.title_edit.setFocus()
+        elif chosen == rename_action:
+            title, ok = QInputDialog.getText(
+                self, "Karar başlığını değiştir" if tr else "Rename decision",
+                "Yeni başlık:" if tr else "New title:", text=decision.title,
+            )
+            if ok and title.strip():
+                self.database.update_decision(decision.id, title.strip(), decision.content_html, decision.content_plain, decision.status)
+                self.refresh(decision.id)
+                self.open_decision(decision.id)
+                self.decisionsChanged.emit()
+        elif chosen == delete_action:
+            self.delete_decision(decision_id)
+
+    def delete_current_decision(self) -> None:
+        if self.current_decision_id is not None:
+            self.delete_decision(self.current_decision_id)
+
+    def delete_decision(self, decision_id: int) -> None:
+        decision = self.database.get_decision(decision_id)
+        if decision is None:
+            return
+        tr = self.i18n.language == "tr"
+        answer = QMessageBox.question(
+            self, "Kararı sil" if tr else "Delete decision",
+            (
+                f'“{decision.title}” kararı silinsin mi?\n\n{decision.decision_key} kimliği tekrar kullanılmaz. '
+                "DevNest içindeki kod bağlantıları ve inceleme başlangıç noktaları da kaldırılır. Kaynak kod veya GitHub deposu değişmez."
+                if tr else
+                f'Delete “{decision.title}”?\n\nThe {decision.decision_key} ID will not be reused. '
+                "DevNest-only code links and review baselines for this decision are also removed. Source code and GitHub are not changed."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.save_current()
+            self.database.delete_decision(decision_id)
+        except DatabaseError as exc:
+            QMessageBox.critical(self, "Karar Silinemedi" if tr else "Delete Decision Failed", str(exc))
+            return
+        if self.current_decision_id == decision_id:
+            self.current_decision_id = None
+        self.refresh()
+        self.decisionsChanged.emit()
+
     def _mark_dirty(self) -> None:
         if self._loading or self.current_decision_id is None:
             return
         self._dirty = True
         self.timer.start(750)
 
-    def save_current(self) -> None:
+    def save_current(self, refresh_after: bool = True) -> None:
         self.timer.stop()
         if self._loading or not self._dirty or self.current_decision_id is None:
             return
         try:
+            decision_id = self.current_decision_id
             self.database.update_decision(
-                self.current_decision_id,
+                decision_id,
                 self.title_edit.text(),
                 self.editor.document().toHtml(),
                 self.editor.toPlainText(),
                 str(self.status_combo.currentData()),
             )
             self._dirty = False
-            self.refresh(self.current_decision_id)
+            if refresh_after:
+                self.refresh(decision_id)
         except DatabaseError as exc:
             QMessageBox.critical(self, "Karar Kaydedilemedi" if self.i18n.language == "tr" else "Save Decision Failed", str(exc))
 
@@ -470,7 +607,8 @@ class DecisionsPage(QWidget):
     def _clear_editor(self) -> None:
         self._loading = True
         self.current_decision_id = None
-        self.key_label.setText("DEC-—")
+        self.key_label.setText(("Kimlik: " if self.i18n.language == "tr" else "ID: ") + "DEC-—")
+        self.decision_heading.setText("Karar seçilmedi" if self.i18n.language == "tr" else "No decision selected")
         self.title_edit.clear()
         self.editor.clear()
         self.resources_label.setText(self.i18n.t("decision.no_resources"))
@@ -549,5 +687,8 @@ class DecisionsPage(QWidget):
             self.review_button.setText("Tekrar kontrol et" if tr else "Check again")
 
     def _set_editor_enabled(self, enabled: bool) -> None:
-        for widget in (self.title_edit, self.editor, self.status_combo, self.link_button, self.changes_button, self.review_button):
+        for widget in (self.title_edit, self.editor, self.status_combo, self.link_button, self.changes_button, self.review_button, self.delete_button):
             widget.setEnabled(enabled)
+        for widget in self._editor_widgets:
+            widget.setVisible(enabled)
+        self.empty_help.setVisible(not enabled)

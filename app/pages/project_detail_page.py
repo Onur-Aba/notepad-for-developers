@@ -11,6 +11,7 @@ class ProjectDetailPage(QWidget):
     sectionRequested = Signal(str)
     backRequested = Signal()
     refreshRepositoryRequested = Signal(int)
+    unlinkRepositoryRequested = Signal(int, int)
 
     def __init__(self, database: Database, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
@@ -149,8 +150,19 @@ class ProjectDetailPage(QWidget):
                 "Check the repository's current commit and changes now. This does not write anything to the codebase."
             )
             refresh.clicked.connect(lambda _checked=False, rid=repo.id: self.refreshRepositoryRequested.emit(rid))
+            remove = QPushButton("Projeden çıkar" if self.i18n.language == "tr" else "Remove from project")
+            remove.setToolTip(
+                "Bu depoyu yalnızca bu DevNest projesinden ayırır. Bilgisayardaki klasörü veya GitHub deposunu silmez."
+                if self.i18n.language == "tr" else
+                "Disconnect this repository only from this DevNest project. It does not delete the local folder or GitHub repository."
+            )
+            remove.clicked.connect(lambda _checked=False, pid=project_id, rid=repo.id: self.unlinkRepositoryRequested.emit(pid, rid))
+            buttons = QHBoxLayout()
+            buttons.addWidget(refresh)
+            buttons.addWidget(remove)
+            buttons.addStretch(1)
             layout.addWidget(name)
             layout.addWidget(detail)
-            layout.addWidget(refresh, 0)
+            layout.addLayout(buttons)
             self.repo_layout.addWidget(frame)
         self.repo_layout.addStretch(1)

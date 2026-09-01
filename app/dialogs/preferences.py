@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QGroupBox,
-    QSpinBox,
     QVBoxLayout,
 )
 
@@ -15,6 +14,7 @@ from app.constants import MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE_DELAY_MS
 from app.i18n import I18n
 from app.settings import AppPreferences
 from app.themes.theme_manager import THEME_OPTIONS
+from app.widgets.no_wheel_spinbox import NoWheelSpinBox
 
 
 class PreferencesDialog(QDialog):
@@ -34,7 +34,7 @@ class PreferencesDialog(QDialog):
             "Not yazarken değişiklikleri siz Kaydet demeden otomatik kaydeder."
             if tr else "Save note changes automatically while you type, without needing a Save button."
         )
-        self.autosave_delay = QSpinBox()
+        self.autosave_delay = NoWheelSpinBox()
         self.autosave_delay.setRange(MIN_AUTOSAVE_DELAY_MS, MAX_AUTOSAVE_DELAY_MS)
         self.autosave_delay.setSingleStep(100)
         self.autosave_delay.setSuffix(" ms")
@@ -47,10 +47,10 @@ class PreferencesDialog(QDialog):
 
         editor = QGroupBox("Editör" if tr else "Editor")
         editor_form = QFormLayout(editor)
-        self.font_size = QSpinBox()
+        self.font_size = NoWheelSpinBox()
         self.font_size.setRange(8, 36)
         self.font_size.setValue(prefs.editor_font_size)
-        self.tab_width = QSpinBox()
+        self.tab_width = NoWheelSpinBox()
         self.tab_width.setRange(2, 8)
         self.tab_width.setValue(prefs.tab_width)
         self.auto_checkbox = QCheckBox("Onay kutusunu varsayılan olarak otomatik sürdür" if tr else "Auto Checkbox by default")
@@ -92,7 +92,7 @@ class PreferencesDialog(QDialog):
         github_form = QFormLayout(github)
         self.github_startup = QCheckBox("Uygulama açılırken depoları kontrol et" if tr else "Check repositories on startup")
         self.github_startup.setChecked(prefs.check_repositories_on_startup)
-        self.github_interval = QSpinBox()
+        self.github_interval = NoWheelSpinBox()
         self.github_interval.setRange(5, 120)
         self.github_interval.setSuffix(" dk" if tr else " min")
         self.github_interval.setValue(prefs.github_poll_interval_minutes)

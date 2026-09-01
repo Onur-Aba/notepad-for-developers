@@ -16,3 +16,12 @@ class ProjectService:
 
     def archive(self, project_id: int) -> None:
         self.database.archive_project(project_id)
+
+    def move_to_trash(self, project_id: int) -> None:
+        self.database.trash_project(project_id)
+
+    def restore(self, project_id: int) -> None:
+        self.database.restore_project(project_id)
+
+    def permanently_delete(self, project_id: int) -> None:
+        self.database.permanently_delete_project(project_id)
