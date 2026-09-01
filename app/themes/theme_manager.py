@@ -327,6 +327,121 @@ QPushButton#editorFindClose {{
     font-weight: 600;
 }}
 QPushButton#editorFindClose:hover {{ background: {spec.hover}; }}
+
+/* DevNest 2.0 product shell */
+QWidget#globalNavigation {{
+    background: {spec.surface};
+    border-right: 1px solid {spec.border};
+}}
+QLabel#productBrand {{ font-size: 21px; font-weight: 750; }}
+QLabel#productTagline {{ color: {spec.muted}; font-size: 11px; line-height: 1.3; }}
+QLabel#navSectionLabel {{ color: {spec.muted}; font-size: 10px; font-weight: 700; padding: 5px 8px 3px 8px; }}
+QPushButton#navButton {{
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 10px;
+    text-align: left;
+    font-size: 13px;
+    background: transparent;
+}}
+QPushButton#navButton:hover {{ background: {spec.hover}; }}
+QPushButton#navButton:checked {{ background: {spec.selected}; font-weight: 650; }}
+QLabel#navFooter {{ color: {spec.muted}; font-size: 10px; padding: 8px; }}
+QWidget#productTopBar {{
+    background: {spec.surface};
+    border-bottom: 1px solid {spec.border};
+}}
+QLabel#topBarLabel {{ color: {spec.muted}; font-size: 11px; font-weight: 650; }}
+QComboBox#projectSelector {{ min-height: 29px; font-weight: 600; }}
+QComboBox#languageQuickSelect {{ min-height: 29px; }}
+QLabel#connectivityIndicator {{ color: {spec.muted}; padding: 5px 8px; border: 1px solid {spec.border}; border-radius: 7px; }}
+QLabel#pageTitle {{ font-size: 27px; font-weight: 760; }}
+QLabel#pageSubtitle {{ color: {spec.muted}; font-size: 12px; }}
+QLabel#sectionTitle {{ font-size: 15px; font-weight: 700; }}
+QLabel#secondaryPanelTitle {{ font-size: 14px; font-weight: 700; }}
+QLabel#cardTitle {{ font-size: 14px; font-weight: 700; }}
+QLabel#cardLabel, QLabel#fieldLabel, QLabel#contextCaption {{ color: {spec.muted}; font-size: 10px; font-weight: 700; }}
+QLabel#metricValue {{ font-size: 28px; font-weight: 760; }}
+QLabel#mutedText, QLabel#projectMeta, QLabel#sortNotice {{ color: {spec.muted}; }}
+QLabel#sortNotice {{ font-size: 10px; }}
+QLabel#helperTitle {{ font-weight: 700; }}
+QLabel#contextValue {{ font-size: 12px; font-weight: 650; }}
+QLabel#decisionKey {{ font-size: 12px; font-weight: 750; padding: 5px 8px; border: 1px solid {spec.border}; border-radius: 6px; }}
+QLabel#emptyState, QLabel#emptyInlineState {{
+    color: {spec.muted};
+    padding: 26px;
+    border: 1px dashed {spec.border};
+    border-radius: 10px;
+}}
+QLabel#emptyInlineState {{ padding: 10px; }}
+QFrame#metricCard, QFrame#projectCard, QFrame#repositoryCard, QFrame#reviewCard, QFrame#dashboardPanel,
+QFrame#secondaryPanel, QFrame#editorPanel, QWidget#inspectorPanel {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 10px;
+}}
+QFrame#helperBanner, QLabel#helperBanner {{
+    background: {spec.surface_alt};
+    border: 1px solid {spec.border};
+    border-radius: 9px;
+    padding: 10px 12px;
+}}
+QFrame#attentionPanel {{
+    background: {spec.surface};
+    border: 1px solid {spec.border};
+    border-radius: 10px;
+}}
+QFrame#attentionPanel[attention="true"] {{ border: 1px solid {spec.accent}; }}
+QFrame#contextBar, QFrame#resourceSummary {{
+    background: {spec.surface_alt};
+    border: 1px solid {spec.border};
+    border-radius: 8px;
+}}
+QPushButton#primaryButton {{
+    background: {spec.accent};
+    color: #ffffff;
+    border: 1px solid {spec.accent};
+    font-weight: 650;
+    padding: 7px 12px;
+}}
+QPushButton#primaryButton:hover {{ background: {spec.selected}; color: {spec.text}; border-color: {spec.accent}; }}
+QPushButton#secondaryTabButton {{ border: 0; background: {spec.surface_alt}; padding: 7px 11px; }}
+QPushButton#secondaryTabButton:hover {{ background: {spec.hover}; }}
+QPushButton#iconActionButton {{ font-size: 18px; font-weight: 700; padding: 3px; }}
+QLabel#smallPill {{
+    color: {spec.muted};
+    background: {spec.surface_alt};
+    border: 1px solid {spec.border};
+    border-radius: 9px;
+    padding: 2px 7px;
+    font-size: 10px;
+}}
+QWidget#noteSidebar {{ background: {spec.surface}; border-right: 1px solid {spec.border}; }}
+QListWidget#noteList, QListWidget#decisionList {{ background: transparent; border: 0; }}
+QListWidget#noteList::item, QListWidget#decisionList::item {{
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 7px;
+    margin: 2px 0;
+}}
+QListWidget#noteList::item:hover, QListWidget#decisionList::item:hover {{ background: {spec.hover}; }}
+QListWidget#noteList::item:selected, QListWidget#decisionList::item:selected {{ background: {spec.selected}; border-color: {spec.border}; }}
+QLabel#noteCardTitle {{ font-weight: 650; }}
+QLabel#noteCardPreview {{ color: {spec.muted}; font-size: 11px; }}
+QLabel#noteCardDate {{ color: {spec.muted}; font-size: 9px; }}
+QLineEdit#documentTitle {{ font-size: 17px; font-weight: 650; padding: 8px 10px; }}
+QLabel#statusBadge {{ border-radius: 8px; padding: 3px 7px; font-size: 10px; font-weight: 650; }}
+QLabel#statusBadge[reviewStatus="current"] {{ background: {spec.surface_alt}; }}
+QLabel#statusBadge[reviewStatus="needs_review"] {{ border: 1px solid {spec.accent}; background: {spec.selected}; }}
+QLabel#statusBadge[reviewStatus="not_reviewed"] {{ color: {spec.muted}; background: {spec.surface_alt}; }}
+QLabel#statusBadge[reviewStatus="cannot_compare"] {{ border: 1px solid {spec.border}; background: {spec.surface_alt}; }}
+QToolTip {{
+    background: {spec.surface_alt};
+    color: {spec.text};
+    border: 1px solid {spec.border};
+    padding: 9px 11px;
+    font-size: 11px;
+}}
 """
 
 

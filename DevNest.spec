@@ -1,19 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-import argparse
+import os
 from pathlib import Path
 
-parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument("--onefile", action="store_true")
-options, _unknown = parser.parse_known_args()
+from PyInstaller.utils.hooks import collect_submodules
 
 project_root = Path(SPECPATH)
+onefile = os.environ.get("DEVNEST_BUILD_ONEFILE", "0").strip() == "1"
+
+hiddenimports = ["PySide6.QtSvg"]
+# On Windows DevNest now uses Credential Manager directly. Keep keyring
+# backends collected as a portable fallback and for non-Windows development.
+hiddenimports += collect_submodules("keyring.backends")
+hiddenimports += collect_submodules("jaraco")
 
 a = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
     binaries=[],
     datas=[(str(project_root / "resources"), "resources")],
-    hiddenimports=["PySide6.QtSvg"],
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -38,7 +43,7 @@ common = dict(
     icon=str(project_root / "resources" / "devnest.ico"),
 )
 
-if options.onefile:
+if onefile:
     exe = EXE(
         pyz,
         a.scripts,

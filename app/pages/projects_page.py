@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+from PySide6.QtCore import Signal, Qt
+from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout, QWidget
+
+from app.database import Database, DatabaseError
+from app.i18n import I18n
+from app.services.project_service import ProjectService
+from app.services.repository_service import RepositoryService
+from app.widgets.project_wizard import CreateProjectWizard
+
+
+class ProjectsPage(QWidget):
+    projectOpened = Signal(int)
+    projectsChanged = Signal()
+    localRepositoryRequested = Signal(int, str)
+
+    def __init__(self, database: Database, project_service: ProjectService,
+                 repository_service: RepositoryService, i18n: I18n, parent=None) -> None:
+        super().__init__(parent)
+        self.database = database
+        self.project_service = project_service
+        self.repository_service = repository_service
+        self.i18n = i18n
+        root = QVBoxLayout(self)
+        root.setContentsMargins(30, 28, 30, 24)
+        root.setSpacing(12)
+        header = QHBoxLayout()
+        titles = QVBoxLayout()
+        self.title = QLabel()
+        self.title.setObjectName("pageTitle")
+        self.subtitle = QLabel()
+        self.subtitle.setWordWrap(True)
+        self.subtitle.setObjectName("pageSubtitle")
+        titles.addWidget(self.title)
+        titles.addWidget(self.subtitle)
+        self.create_button = QPushButton()
+        self.create_button.setObjectName("primaryButton")
+        self.create_button.clicked.connect(self.create_project)
+        header.addLayout(titles, 1)
+        header.addWidget(self.create_button)
+        root.addLayout(header)
+
+        self.help = QLabel()
+        self.help.setObjectName("helperBanner")
+        self.help.setWordWrap(True)
+        root.addWidget(self.help)
+
+        self.container = QWidget()
+        self.cards = QVBoxLayout(self.container)
+        self.cards.setContentsMargins(0, 4, 0, 0)
+        self.cards.setSpacing(10)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(self.container)
+        root.addWidget(scroll, 1)
+        self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
+        self.retranslate_ui()
+        self.refresh()
+
+    def retranslate_ui(self) -> None:
+        self.title.setText(self.i18n.t("projects.title"))
+        self.subtitle.setText(self.i18n.t("projects.subtitle"))
+        self.create_button.setText(self.i18n.t("projects.create"))
+        self.create_button.setToolTip(self.i18n.t("tip.projects.create"))
+        self.help.setText(
+            "Bir proje = bir ürün veya kod tabanı. Önce projeyi açın; sonra not, karar ve depo bağlantılarını o projenin içinde tutun."
+            if self.i18n.language == "tr" else
+            "One project = one product or codebase. Open the project first, then keep its notes, decisions and repository connections inside it."
+        )
+        self.refresh()
+
+    def refresh(self) -> None:
+        while self.cards.count():
+            item = self.cards.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        projects = self.database.list_project_summaries()
+        if not projects:
+            empty = QLabel(self.i18n.t("projects.empty"))
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setWordWrap(True)
+            empty.setObjectName("emptyState")
+            self.cards.addWidget(empty, 1)
+            return
+        for project in projects:
+            frame = QFrame()
+            frame.setObjectName("projectCard")
+            row = QHBoxLayout(frame)
+            row.setContentsMargins(16, 14, 14, 14)
+            text = QVBoxLayout()
+            text.setSpacing(5)
+            name = QLabel(project.name)
+            name.setObjectName("cardTitle")
+            desc = QLabel(project.description or self.i18n.t("projects.no_description"))
+            desc.setWordWrap(True)
+            desc.setObjectName("mutedText")
+            counts = QLabel(
+                f"{project.repository_count} {self.i18n.t('projects.repositories')}   ·   "
+                f"{project.note_count} {self.i18n.t('projects.notes')}   ·   "
+                f"{project.decision_count} {self.i18n.t('projects.decisions')}   ·   "
+                f"{project.diagram_count} {self.i18n.t('projects.diagrams')}"
+            )
+            counts.setObjectName("projectMeta")
+            text.addWidget(name)
+            text.addWidget(desc)
+            text.addWidget(counts)
+            open_button = QPushButton(self.i18n.t("projects.open"))
+            open_button.setObjectName("primaryButton")
+            open_button.setToolTip(self.i18n.t("tip.projects.open"))
+            open_button.clicked.connect(lambda _checked=False, pid=project.id: self.projectOpened.emit(pid))
+            archive = QPushButton(self.i18n.t("projects.archive"))
+            archive.setToolTip(self.i18n.t("tip.projects.archive"))
+            archive.clicked.connect(lambda _checked=False, pid=project.id, n=project.name: self._archive(pid, n))
+            row.addLayout(text, 1)
+            row.addWidget(open_button)
+            row.addWidget(archive)
+            self.cards.addWidget(frame)
+        self.cards.addStretch(1)
+
+    def create_project(self) -> None:
+        # Existing wizard is intentionally preserved for compatibility.
+        wizard = CreateProjectWizard(self.database, self.i18n, self)
+        if wizard.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = wizard.values()
+        try:
+            project = self.project_service.create(str(values["name"]), str(values["description"]))
+            mode = str(values["mode"])
+            github_id = values["github_repository_id"]
+            if github_id is not None and mode in {"github", "both"}:
+                repo = self.database.get_repository(int(github_id))
+                if repo:
+                    self.database.link_repository_to_project(project.id, repo.id, repo.default_branch)
+            local_path = str(values["local_path"] or "")
+            if local_path and mode in {"local", "both"}:
+                self.localRepositoryRequested.emit(project.id, local_path)
+            self.refresh()
+            self.projectsChanged.emit()
+            self.projectOpened.emit(project.id)
+        except DatabaseError as exc:
+            QMessageBox.critical(self, "Create Project Failed", str(exc))
+
+    def _archive(self, project_id: int, name: str) -> None:
+        if self.i18n.language == "tr":
+            title = "Projeyi Arşivle"
+            text = f'"{name}" projesi arşivlensin mi? Notlar, kararlar ve depo bilgileri silinmez.'
+        else:
+            title = "Archive Project"
+            text = f'Archive "{name}"? Notes, decisions and repository data will be preserved.'
+        answer = QMessageBox.question(
+            self, title, text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.project_service.archive(project_id)
+            self.refresh()
+            self.projectsChanged.emit()

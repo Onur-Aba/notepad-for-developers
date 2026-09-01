@@ -24,6 +24,7 @@ from app.widgets.find_bar import EditorFindBar
 from app.constants import TAB_SPACES
 
 TASK_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<marker>☐|☑)(?: (?P<text>.*))?$")
+NUMBERED_TEXT_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<number>\d+)\.(?: (?P<text>.*))?$")
 
 class SearchMarkerScrollBar(QScrollBar):
     def __init__(self, orientation: Qt.Orientation, parent=None) -> None:
@@ -63,11 +64,13 @@ class SearchMarkerScrollBar(QScrollBar):
 
 class NoteEditor(QTextEdit):
     taskStateChanged = Signal()
+    numberedListModeChanged = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.auto_checkbox_enabled = True
         self.blank_line_after_enter = False
+        self.numbered_list_mode_enabled = False
         self.tab_spaces = TAB_SPACES
         self.base_font_size = 12
         self.setAcceptRichText(True)
@@ -476,7 +479,88 @@ class NoteEditor(QTextEdit):
         self._make_list(QTextListFormat.Style.ListDisc)
 
     def make_numbered_list(self) -> None:
-        self._make_list(QTextListFormat.Style.ListDecimal)
+        """Enable the plain-text numbered list mode.
+
+        Unlike QTextList's decimal markers, these numbers are real document
+        characters so Select All / Copy / TXT export includes them.
+        """
+        self.set_numbered_list_mode(True)
+
+    def set_numbered_list_mode(self, enabled: bool) -> None:
+        self.numbered_list_mode_enabled = bool(enabled)
+        if self.numbered_list_mode_enabled:
+            self._number_selected_or_current_blocks()
+
+    def _number_selected_or_current_blocks(self) -> None:
+        visible_cursor = self.textCursor()
+        document = self.document()
+        selection_start = visible_cursor.selectionStart()
+        selection_end = visible_cursor.selectionEnd()
+        original_position = visible_cursor.position()
+        original_position_in_block = visible_cursor.positionInBlock()
+        original_block_text = visible_cursor.block().text()
+        original_match = NUMBERED_TEXT_LINE_RE.match(original_block_text)
+        original_indent_len = (
+            len(original_match.group("indent"))
+            if original_match
+            else len(original_block_text) - len(original_block_text.lstrip(" "))
+        )
+        original_prefix_len = 0
+        if original_match:
+            original_prefix = f"{original_match.group('number')}."
+            if original_block_text[len(original_match.group("indent")) + len(original_prefix) :].startswith(" "):
+                original_prefix += " "
+            original_prefix_len = len(original_prefix)
+            if not visible_cursor.hasSelection():
+                # Re-enabling the mode on an existing numbered item should
+                # continue from that number instead of resetting it to 1.
+                return
+
+        end_lookup = max(selection_start, selection_end - 1) if visible_cursor.hasSelection() else selection_start
+        first_block = document.findBlock(selection_start)
+        last_block = document.findBlock(end_lookup)
+
+        blocks: list[QTextBlock] = []
+        block = first_block
+        while block.isValid():
+            blocks.append(block)
+            if block == last_block:
+                break
+            block = block.next()
+
+        # Edit from bottom to top so positions of blocks that still need work
+        # remain stable while prefixes are inserted/replaced.
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            for number, block in reversed(list(enumerate(blocks, start=1))):
+                text = block.text()
+                existing = NUMBERED_TEXT_LINE_RE.match(text)
+                indent = existing.group("indent") if existing else text[: len(text) - len(text.lstrip(" "))]
+                prefix_start = block.position() + len(indent)
+                block_cursor = QTextCursor(document)
+                block_cursor.setPosition(prefix_start)
+                if existing:
+                    old_prefix = f"{existing.group('number')}."
+                    if text[len(indent) + len(old_prefix) :].startswith(" "):
+                        old_prefix += " "
+                    block_cursor.setPosition(prefix_start + len(old_prefix), QTextCursor.MoveMode.KeepAnchor)
+                block_cursor.insertText(f"{number}. ")
+        finally:
+            edit.endEditBlock()
+
+        # Preserve the caret relative to the user's text. The prefix is real
+        # text, so a cursor positioned after the insertion point must move by
+        # exactly the prefix length delta.
+        if not visible_cursor.hasSelection() and blocks:
+            new_prefix_len = len("1. ")
+            prefix_delta = new_prefix_len - original_prefix_len
+            new_position = original_position
+            if original_position_in_block >= original_indent_len:
+                new_position += prefix_delta
+            current = QTextCursor(document)
+            current.setPosition(max(0, min(document.characterCount() - 1, new_position)))
+            self.setTextCursor(current)
 
     def _make_list(self, style: QTextListFormat.Style) -> None:
         cursor = self.textCursor()
@@ -494,6 +578,8 @@ class NoteEditor(QTextEdit):
         modifiers = event.modifiers()
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.numbered_list_mode_enabled and self._handle_numbered_list_enter():
+                return
             if self.auto_checkbox_enabled and self._handle_task_enter():
                 return
             if self.blank_line_after_enter:
@@ -509,6 +595,37 @@ class NoteEditor(QTextEdit):
                 return
 
         super().keyPressEvent(event)
+
+    def _handle_numbered_list_enter(self) -> bool:
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            return False
+        block = cursor.block()
+        match = NUMBERED_TEXT_LINE_RE.match(block.text())
+        if not match:
+            return False
+
+        item_text = (match.group("text") or "").strip()
+        indent = match.group("indent")
+        number = int(match.group("number"))
+        if not item_text:
+            marker_start = block.position() + len(indent)
+            remove_cursor = QTextCursor(self.document())
+            remove_cursor.setPosition(marker_start)
+            remove_cursor.setPosition(block.position() + len(block.text()), QTextCursor.MoveMode.KeepAnchor)
+            remove_cursor.removeSelectedText()
+            remove_cursor.setPosition(marker_start)
+            self.setTextCursor(remove_cursor)
+            self.numbered_list_mode_enabled = False
+            self.numberedListModeChanged.emit(False)
+            return True
+
+        cursor.insertBlock()
+        if self.blank_line_after_enter:
+            cursor.insertBlock()
+        cursor.insertText(f"{indent}{number + 1}. ")
+        self.setTextCursor(cursor)
+        return True
 
     def _handle_task_enter(self) -> bool:
         cursor = self.textCursor()

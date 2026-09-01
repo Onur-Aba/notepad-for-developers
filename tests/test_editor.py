@@ -179,6 +179,85 @@ def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
     assert editor.toPlainText() == "☐ Backend\n\n☐ "
 
 
+
+def test_plain_text_list_mode_numbers_selected_lines_and_select_all_includes_markers(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("Alpha\nBeta\nGamma")
+    editor.selectAll()
+    editor.set_numbered_list_mode(True)
+
+    expected = "1. Alpha\n2. Beta\n3. Gamma"
+    assert editor.toPlainText() == expected
+    block = editor.document().firstBlock()
+    while block.isValid():
+        assert block.textList() is None
+        block = block.next()
+
+    editor.selectAll()
+    selected = editor.textCursor().selectedText().replace("\u2029", "\n")
+    assert selected == expected
+
+
+def test_plain_text_list_mode_enter_continues_numbering(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.setPlainText("First item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "1. First item\n2. "
+
+
+def test_plain_text_list_mode_works_with_double_enter(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("First item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "1. First item\n\n2. "
+
+
+def test_empty_plain_text_list_item_exits_list_mode(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.setPlainText("1. ")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == ""
+    assert editor.numbered_list_mode_enabled is False
+
+
+def test_reenabling_list_mode_on_existing_item_keeps_its_number(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("7. Existing item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    editor.set_numbered_list_mode(True)
+    assert editor.toPlainText() == "7. Existing item"
+
+
 def test_inline_find_highlights_all_matches_and_advances_down(app: QApplication) -> None:
     editor = NoteEditor()
     editor.setPlainText("git one\ngit two\nGIT three")
