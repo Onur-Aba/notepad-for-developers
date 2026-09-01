@@ -23,11 +23,6 @@ if ([int]$Parts[0] -lt 3 -or ([int]$Parts[0] -eq 3 -and [int]$Parts[1] -lt 12)) 
     Fail "Python 3.12+ is required. Found $VersionText."
 }
 
-$Architecture = python -c "import platform; print(platform.architecture()[0])"
-if ($Architecture.Trim() -ne "64bit") {
-    Write-Host "WARNING: You are not building with 64-bit Python. For normal Windows 10/11 distribution, 64-bit Python is recommended." -ForegroundColor Yellow
-}
-
 if (-not $SkipInstall) {
     Write-Host "Installing/updating project dependencies..."
     python -m pip install --upgrade pip
@@ -42,7 +37,10 @@ if ($LASTEXITCODE -ne 0) { Fail "PySide6 or PyInstaller is unavailable in the ac
 Write-Host "Running tests..."
 $env:QT_QPA_PLATFORM = "offscreen"
 python -m pytest -q
-if ($LASTEXITCODE -ne 0) { Fail "Tests failed. Build stopped to avoid packaging a broken release." }
+if ($LASTEXITCODE -ne 0) {
+    Remove-Item Env:QT_QPA_PLATFORM -ErrorAction SilentlyContinue
+    Fail "Tests failed. Build stopped to avoid packaging a broken release."
+}
 Remove-Item Env:QT_QPA_PLATFORM -ErrorAction SilentlyContinue
 
 foreach ($Folder in @("build", "dist")) {
@@ -52,15 +50,22 @@ foreach ($Folder in @("build", "dist")) {
     }
 }
 
+$env:DEVNEST_BUILD_ONEFILE = if ($OneFile) { "1" } else { "0" }
+try {
+    if ($OneFile) {
+        Write-Host "Building single-file DevNest.exe with PyInstaller..."
+    } else {
+        Write-Host "Building DevNest onedir package with PyInstaller..."
+    }
+    python -m PyInstaller --noconfirm --clean DevNest.spec
+    if ($LASTEXITCODE -ne 0) { Fail "PyInstaller build failed. Review the output above." }
+} finally {
+    Remove-Item Env:DEVNEST_BUILD_ONEFILE -ErrorAction SilentlyContinue
+}
+
 if ($OneFile) {
-    Write-Host "Building single-file DevNest.exe with PyInstaller..."
-    python -m PyInstaller --noconfirm --clean DevNest.spec -- --onefile
-    if ($LASTEXITCODE -ne 0) { Fail "PyInstaller one-file build failed. Review the output above." }
     $Exe = Join-Path $ProjectRoot "dist\DevNest.exe"
 } else {
-    Write-Host "Building DevNest onedir package with PyInstaller..."
-    python -m PyInstaller --noconfirm --clean DevNest.spec
-    if ($LASTEXITCODE -ne 0) { Fail "PyInstaller onedir build failed. Review the output above." }
     $Exe = Join-Path $ProjectRoot "dist\DevNest\DevNest.exe"
 }
 
@@ -72,8 +77,9 @@ Write-Host ""
 Write-Host "Build successful." -ForegroundColor Green
 Write-Host "Executable: $Exe"
 if ($OneFile) {
-    Write-Host "You can distribute dist\DevNest.exe as a single file."
+    Write-Host "Distribute dist\DevNest.exe."
 } else {
     Write-Host "For maximum reliability, distribute the ENTIRE dist\DevNest folder."
 }
-Write-Host "User notes remain in Windows AppData, not beside the executable."
+Write-Host "GitHub tokens remain in Windows Credential Manager and are NOT embedded in the EXE."
+Write-Host "Public GitHub App Client ID/slug are remembered in Windows QSettings after DevNest sees them once."

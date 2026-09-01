@@ -179,7 +179,12 @@ class DiagramShape(QGraphicsPathItem):
         self.label = QGraphicsTextItem(text, self)
         self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.label.setTextWidth(max(28.0, self._width - 20.0))
+        self.review_badge = QGraphicsTextItem("", self)
+        self.review_badge.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.review_badge.setScale(0.72)
+        self._review_status: str | None = None
         self._position_label()
+        self._position_review_badge()
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
             | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -203,6 +208,29 @@ class DiagramShape(QGraphicsPathItem):
         label_height = self.label.boundingRect().height()
         self.label.setPos(10.0, max(4.0, (self._height - label_height) / 2.0))
 
+    def _position_review_badge(self) -> None:
+        self.review_badge.setPos(6.0, self._height + 2.0)
+
+    def set_review_status(self, status: str | None) -> None:
+        self._review_status = status
+        labels = {
+            "current": "✓ Current",
+            "needs_review": "⚠ Needs Review",
+            "not_reviewed": "○ Not Reviewed",
+            "cannot_compare": "! Cannot Compare",
+        }
+        colors = {
+            "current": "#2f855a",
+            "needs_review": "#b7791f",
+            "not_reviewed": "#718096",
+            "cannot_compare": "#c53030",
+        }
+        self.review_badge.setPlainText(labels.get(status or "", ""))
+        if status in colors:
+            self.review_badge.setDefaultTextColor(QColor(colors[status]))
+        self.review_badge.setVisible(bool(status))
+        self._position_review_badge()
+
     def _position_handles(self) -> None:
         x_mid = self._width / 2.0
         y_mid = self._height / 2.0
@@ -224,6 +252,7 @@ class DiagramShape(QGraphicsPathItem):
         self._height = max(MIN_SHAPE_HEIGHT, float(height))
         self.setPath(_make_shape_path(self.shape_type, self._width, self._height))
         self._position_label()
+        self._position_review_badge()
         self._position_handles()
         if notify:
             self._on_changed()
@@ -424,6 +453,7 @@ def _paint_arrow_head(painter: QPainter, path: QPainterPath, pen: QPen) -> None:
 
 class DiagramScene(QGraphicsScene):
     diagramChanged = Signal()
+    itemsDeleted = Signal(list)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -820,7 +850,14 @@ class DiagramScene(QGraphicsScene):
         for item in selected:
             if item.scene() is self:
                 self.removeItem(item)
+        if node_ids:
+            self.itemsDeleted.emit(sorted(node_ids))
         self._notify_changed()
+
+    def set_review_statuses(self, statuses: dict[str, str]) -> None:
+        for item in self.items():
+            if isinstance(item, DiagramShape):
+                item.set_review_status(statuses.get(item.item_id))
 
     def duplicate_selected(self) -> None:
         selected = list(self.selectedItems())
@@ -1132,6 +1169,7 @@ class DiagramCanvas(QGraphicsView):
 
 class DiagramView(QWidget):
     diagramChanged = Signal()
+    itemsDeleted = Signal(list)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1143,6 +1181,7 @@ class DiagramView(QWidget):
         bar.setContentsMargins(6, 4, 6, 0)
         self.scene = DiagramScene(self)
         self.scene.diagramChanged.connect(self.diagramChanged)
+        self.scene.itemsDeleted.connect(self.itemsDeleted)
         self.canvas = DiagramCanvas(self.scene)
         self._mode_buttons: dict[str, QPushButton] = {}
 
@@ -1210,6 +1249,9 @@ class DiagramView(QWidget):
 
     def to_data(self) -> dict[str, object]:
         return self.scene.to_data()
+
+    def set_review_statuses(self, statuses: dict[str, str]) -> None:
+        self.scene.set_review_statuses(statuses)
 
     def delete_selected(self) -> None:
         self.scene.delete_selected()

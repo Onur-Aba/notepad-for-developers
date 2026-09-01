@@ -18,6 +18,8 @@ class AppPreferences:
     auto_checkbox_default: bool = True
     blank_line_after_enter: bool = False
     word_wrap: bool = True
+    check_repositories_on_startup: bool = True
+    github_poll_interval_minutes: int = 15
 
 
 class SettingsManager:
@@ -35,6 +37,8 @@ class SettingsManager:
             auto_checkbox_default=self._bool("editor/auto_checkbox_default", True),
             blank_line_after_enter=self._bool("editor/blank_line_after_enter", False),
             word_wrap=self._bool("editor/word_wrap", True),
+            check_repositories_on_startup=self._bool("github/check_on_startup", True),
+            github_poll_interval_minutes=int(self.qsettings.value("github/poll_interval_minutes", 15)),
         )
 
     def save_preferences(self, prefs: AppPreferences) -> None:
@@ -47,6 +51,8 @@ class SettingsManager:
         self.qsettings.setValue("editor/auto_checkbox_default", prefs.auto_checkbox_default)
         self.qsettings.setValue("editor/blank_line_after_enter", prefs.blank_line_after_enter)
         self.qsettings.setValue("editor/word_wrap", prefs.word_wrap)
+        self.qsettings.setValue("github/check_on_startup", prefs.check_repositories_on_startup)
+        self.qsettings.setValue("github/poll_interval_minutes", prefs.github_poll_interval_minutes)
         self.qsettings.sync()
 
     def last_note_id(self) -> int | None:

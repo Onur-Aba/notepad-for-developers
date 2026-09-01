@@ -17,22 +17,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import I18n
 from app.models import NoteSummary
 
 
 class NoteCard(QWidget):
-    def __init__(self, note: NoteSummary, parent=None) -> None:
+    def __init__(self, note: NoteSummary, no_content: str = "No content", parent=None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 5, 7, 5)
-        layout.setSpacing(2)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setSpacing(3)
         title = QLabel(note.title)
-        title.setStyleSheet("font-weight: 600;")
-        preview = QLabel(note.preview or "No content")
+        title.setObjectName("noteCardTitle")
+        preview = QLabel(note.preview or no_content)
         preview.setWordWrap(False)
-        preview.setStyleSheet("font-size: 11px;")
+        preview.setObjectName("noteCardPreview")
         date = QLabel(self._format_date(note.updated_at))
-        date.setStyleSheet("font-size: 10px;")
+        date.setObjectName("noteCardDate")
         layout.addWidget(title)
         layout.addWidget(preview)
         layout.addWidget(date)
@@ -57,61 +58,98 @@ class Sidebar(QWidget):
     searchChanged = Signal(str)
     sortChanged = Signal(str)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, i18n: I18n | None = None, parent=None) -> None:
         super().__init__(parent)
-        self.setMinimumWidth(210)
+        self.i18n = i18n
+        self._notes: list[NoteSummary] = []
+        self._selected_id: int | None = None
+        self.setObjectName("noteSidebar")
+        self.setMinimumWidth(240)
         self.setMaximumWidth(520)
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(7)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(9)
 
         top = QHBoxLayout()
-        label = QLabel("Notes")
-        label.setStyleSheet("font-size: 15px; font-weight: 700;")
-        new_button = QPushButton("+")
-        new_button.setToolTip("New Note (Ctrl+N)")
-        new_button.setFixedWidth(34)
-        new_button.clicked.connect(self.newNoteRequested)
-        top.addWidget(label)
+        self.label = QLabel("Notes")
+        self.label.setObjectName("secondaryPanelTitle")
+        self.new_button = QPushButton("+")
+        self.new_button.setObjectName("iconActionButton")
+        self.new_button.setFixedWidth(38)
+        self.new_button.clicked.connect(self.newNoteRequested)
+        top.addWidget(self.label)
         top.addStretch(1)
-        top.addWidget(new_button)
+        top.addWidget(self.new_button)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search notes…")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.searchChanged)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.addItem("Recently edited", "updated")
-        self.sort_combo.addItem("Alphabetical", "title")
         self.sort_combo.currentIndexChanged.connect(
             lambda _index: self.sortChanged.emit(str(self.sort_combo.currentData()))
         )
 
         self.list = QListWidget()
+        self.list.setObjectName("noteList")
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.customContextMenuRequested.connect(self._show_context_menu)
         self.list.currentItemChanged.connect(self._on_current_changed)
 
-        trash = QPushButton("Trash")
-        trash.setToolTip("Restore or permanently delete notes")
-        trash.clicked.connect(self.trashRequested)
+        self.trash = QPushButton()
+        self.trash.clicked.connect(self.trashRequested)
 
         root.addLayout(top)
         root.addWidget(self.search)
         root.addWidget(self.sort_combo)
         root.addWidget(self.list, 1)
-        root.addWidget(trash)
+        root.addWidget(self.trash)
+        if self.i18n:
+            self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
+        self.retranslate_ui()
+
+    def retranslate_ui(self) -> None:
+        tr = self.i18n.t if self.i18n else lambda key, **_kw: {
+            "nav.notes": "Notes", "top.search": "Search notes…",
+        }.get(key, key)
+        self.label.setText(tr("nav.notes"))
+        self.search.setPlaceholderText("Notlarda ara…" if self.i18n and self.i18n.language == "tr" else "Search notes…")
+        self.new_button.setToolTip(
+            "Yeni bir boş not oluşturur. Not otomatik kaydedilir; daha sonra koda bağlayabilirsiniz."
+            if self.i18n and self.i18n.language == "tr"
+            else "Create a new blank note. It saves automatically and can be connected to code later."
+        )
+        current_data = self.sort_combo.currentData()
+        self.sort_combo.blockSignals(True)
+        self.sort_combo.clear()
+        if self.i18n and self.i18n.language == "tr":
+            self.sort_combo.addItem("En son düzenlenen", "updated")
+            self.sort_combo.addItem("Alfabetik", "title")
+            self.trash.setText("Çöp Kutusu")
+            self.trash.setToolTip("Silinen notları geri yüklemek veya kalıcı olarak silmek için açın.")
+        else:
+            self.sort_combo.addItem("Recently edited", "updated")
+            self.sort_combo.addItem("Alphabetical", "title")
+            self.trash.setText("Trash")
+            self.trash.setToolTip("Open deleted notes so you can restore them or remove them permanently.")
+        index = self.sort_combo.findData(current_data)
+        self.sort_combo.setCurrentIndex(max(0, index))
+        self.sort_combo.blockSignals(False)
+        if self._notes:
+            self.set_notes(self._notes, self._selected_id)
 
     def set_notes(self, notes: list[NoteSummary], selected_id: int | None = None) -> None:
+        self._notes = list(notes)
+        self._selected_id = selected_id
         self.list.blockSignals(True)
         self.list.clear()
         selected_item: QListWidgetItem | None = None
+        no_content = "İçerik yok" if self.i18n and self.i18n.language == "tr" else "No content"
         for note in notes:
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, note.id)
-            card = NoteCard(note)
+            card = NoteCard(note, no_content)
             item.setSizeHint(card.sizeHint())
             self.list.addItem(item)
             self.list.setItemWidget(item, card)
@@ -127,11 +165,14 @@ class Sidebar(QWidget):
             if int(item.data(Qt.ItemDataRole.UserRole)) == note_id:
                 self.list.setCurrentItem(item)
                 self.list.scrollToItem(item)
+                self._selected_id = note_id
                 return
 
     def _on_current_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
         if current is not None:
-            self.noteSelected.emit(int(current.data(Qt.ItemDataRole.UserRole)))
+            note_id = int(current.data(Qt.ItemDataRole.UserRole))
+            self._selected_id = note_id
+            self.noteSelected.emit(note_id)
 
     def _show_context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
@@ -139,11 +180,12 @@ class Sidebar(QWidget):
             return
         note_id = int(item.data(Qt.ItemDataRole.UserRole))
         menu = QMenu(self)
-        rename = menu.addAction("Rename")
-        duplicate = menu.addAction("Duplicate")
-        export = menu.addAction("Export TXT")
+        tr_mode = bool(self.i18n and self.i18n.language == "tr")
+        rename = menu.addAction("Yeniden adlandır" if tr_mode else "Rename")
+        duplicate = menu.addAction("Kopyasını oluştur" if tr_mode else "Duplicate")
+        export = menu.addAction("TXT dışa aktar" if tr_mode else "Export TXT")
         menu.addSeparator()
-        delete = menu.addAction("Delete to Trash")
+        delete = menu.addAction("Çöp kutusuna taşı" if tr_mode else "Delete to Trash")
         chosen = menu.exec(self.list.mapToGlobal(pos))
         if chosen == rename:
             self.renameRequested.emit(note_id)

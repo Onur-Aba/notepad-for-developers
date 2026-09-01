@@ -50,8 +50,8 @@ Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya gönder
 | Alan | Özellikler |
 |---|---|
 | **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
-| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
-| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
+| **Editör** | Bold, italic, underline, strikethrough, bullet listeleri, gerçek metin olarak `1. 2. 3.` yazan List Mode, font / boyut / kalınlık kontrolleri |
+| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, toolbar'dan açılıp kapanan Double Enter |
 | **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
 | **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
 | **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
@@ -85,6 +85,12 @@ Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya
 İşaretlenen görevlerin metni otomatik olarak üstü çizili hale gelir. İşaret kaldırıldığında strikethrough da kaldırılır.
 
 **Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
+
+## List Mode ve Double Enter
+
+Toolbar'daki **List Mode** açıldığında mevcut satıra `1. ` eklenir ve her <kbd>Enter</kbd> basışında `2. `, `3. `, `4. ` şeklinde sıra devam eder. Birden fazla satır seçiliyken List Mode açılırsa seçili satırlar 1'den başlayarak topluca numaralandırılır. Bu numaralar Qt'nin görsel liste marker'ları değil, doğrudan notun içindeki metin karakterleridir; bu yüzden <kbd>Ctrl</kbd> + <kbd>A</kbd>, kopyalama ve TXT dışa aktarmada numaralar da dahil edilir.
+
+**Double Enter** açıkken tek bir <kbd>Enter</kbd> iki satır aşağı ilerler ve arada bir boş satır bırakır. List Mode ile birlikte kullanıldığında sonraki sıra numarası boş satırdan sonra oluşturulur.
 
 ## TXT içe / dışa aktarma
 
@@ -583,3 +589,8 @@ DevNest is designed to work locally without a web server, browser frontend, mand
 <p align="center">
   <sub>DevNest 1.2.5 · Native desktop workspace for everyday development notes and planning.</sub>
 </p>
+
+
+## GitHub connection and Windows build
+
+See `GITHUB_SETUP.md` for the GitHub App Device Flow / installation flow and `BUILD_WINDOWS.md` for PyInstaller build commands. GitHub credentials persist in Windows Credential Manager; public App configuration is remembered in QSettings.

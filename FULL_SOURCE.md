@@ -1,6 +1,6 @@
-# DevNest 1.2.5 — Full Source
+# DevNest 2.0.0 — Full Source
 
-This file contains the complete text-source snapshot for DevNest 1.2.5. Binary icon files are included in the ZIP but intentionally not embedded here.
+This file contains the complete text-source snapshot for DevNest 2.0.0. Binary icon files are included in the ZIP but intentionally not embedded here.
 
 ## `.gitignore`
 
@@ -87,6 +87,56 @@ else:
     )
 ````
 
+## `GITHUB_SETUP.md`
+
+````markdown
+# DevNest 2.0 — GitHub App setup
+
+DevNest stays local-first. GitHub is an optional read-only integration used to list repositories, inspect commits / pull requests, compare revisions, and decide whether linked documents need review.
+
+## Required GitHub App settings
+
+Create a GitHub App under **Settings → Developer settings → GitHub Apps → New GitHub App**.
+
+Recommended settings:
+
+- **GitHub App name:** DevNest (or a unique development name)
+- **Homepage URL:** your DevNest repository / project page
+- **Webhook:** disabled for the desktop-only architecture
+- **Request user authorization (OAuth) during installation:** leave disabled; DevNest performs authorization separately with Device Flow
+- **Device Flow:** enabled
+- **Expire user authorization tokens:** leave enabled (DevNest refreshes Device Flow tokens)
+- **Repository permissions:**
+  - Contents: **Read-only**
+  - Pull requests: **Read-only**
+  - Metadata: GitHub provides the required read access for app metadata
+- Do not request write permissions.
+- For private development you can limit installation to your own account; for distribution choose the option that lets other accounts install the app.
+
+After creating the app, copy its **Client ID** (not App ID). Put it in `app/constants.py`:
+
+```python
+GITHUB_APP_CLIENT_ID = "Iv1.xxxxxxxxxxxxxxxx"
+GITHUB_APP_INSTALL_URL = "https://github.com/apps/<your-app-slug>/installations/new"
+```
+
+The Client ID and installation URL are public identifiers and may be shipped in the executable. Do **not** put a client secret or private key in the desktop application.
+
+## End-user flow
+
+1. Install/manage the DevNest GitHub App and choose the repositories DevNest may access.
+2. In DevNest, choose **Project → Connect GitHub**.
+3. DevNest shows a GitHub Device Flow code and opens the browser.
+4. Approve the device.
+5. Open **Project → GitHub Repositories** and import an allowed repository.
+
+DevNest stores GitHub access/refresh credentials in **Windows Credential Manager**, not in SQLite.
+
+## Local repositories
+
+GitHub is not required for a local checkout. Create a project and select a local Git repository. DevNest uses the installed `git` executable to read HEAD, history and changed file paths. GitHub is only needed for remote-only repositories and GitHub-specific context such as pull requests.
+````
+
 ## `README.md`
 
 ````markdown
@@ -97,12 +147,12 @@ else:
 <h1 align="center">DevNest</h1>
 
 <p align="center">
-  <strong>Notes, tasks and lightweight diagrams for developers.</strong><br>
-  Native desktop app for Windows · Offline-first · No account · No telemetry
+  <strong>Living engineering context for developers.</strong><br>
+  Native Windows desktop app · Local-first · Git-aware · Optional read-only GitHub connection
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.2.5-2f81f7?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.0.0-2f81f7?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="PySide6" src="https://img.shields.io/badge/PySide6-Qt%206-41CD52?style=flat-square&logo=qt&logoColor=white">
   <img alt="Platform" src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square&logo=windows11&logoColor=white">
@@ -139,16 +189,33 @@ Tarayıcı açmaz, hesap istemez ve notlarınızı herhangi bir sunucuya gönder
 
 ### Öne çıkan özellikler
 
+### DevNest 2.0 Engineering Context
+
+DevNest 2.0, mevcut not/editör/diyagram motorunu korurken projeleri gerçek Git repository bağlamına taşır. Her proje local Git checkout veya izin verilmiş bir GitHub repository ile ilişkilendirilebilir. Note ve Decision belgeleri repo, klasör, dosya veya seçili diagram node'larıyla bağlanabilir. DevNest bağlantı oluşturulduğu andaki commit SHA'yı baseline olarak saklar; bağlı kod daha sonra değişirse belgeyi **Needs Review** olarak işaretler. Bu kontrol AI kullanmaz: yalnızca Git commit geçmişi ve değişen dosya yolları kullanılır.
+
+- Project bazlı çalışma alanı
+- Note / Decision belge türleri
+- Local Git repository algılama ve otomatik GitHub remote tanıma
+- Repo / directory / file → document bağlantıları
+- Diagram node → repo path bağlantıları
+- Commit ve Pull Request referansları
+- Baseline SHA + Current / Needs Review durumu
+- Açılışta ve uygulama çalışırken sessiz repository taraması
+- GitHub Device Flow + Windows Credential Manager
+- GitHub tarafında yalnızca read-only API kullanımı
+
+GitHub App hazırlığı için [`GITHUB_SETUP.md`](GITHUB_SETUP.md) dosyasına bakın.
+
 | Alan | Özellikler |
 |---|---|
 | **Notlar** | Hızlı not oluşturma, arama, yeniden adlandırma, çoğaltma, sıralama |
-| **Editör** | Bold, italic, underline, strikethrough, listeler, font / boyut / kalınlık kontrolleri; checkbox ve liste marker'ları da font ayarlarını takip eder |
-| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, isteğe bağlı Enter sonrası boş satır |
+| **Editör** | Bold, italic, underline, strikethrough, bullet listeleri, gerçek metin olarak `1. 2. 3.` yazan List Mode, font / boyut / kalınlık kontrolleri |
+| **Todo** | Tıklanabilir `☐ / ☑` görevler, otomatik üstü çizme, Auto Checkbox, nested task desteği, toolbar'dan açılıp kapanan Double Enter |
 | **TXT** | `[ ]`, `[x]`, `[X]`, `☐`, `☑`, `✓` algılama; UTF-8 import/export |
 | **Diagram** | Sürükleyerek boyutlandırılan şekiller, text, yönlü connector, zoom, pan, resize |
 | **Temalar** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist, System |
 | **Veri güvenliği** | Autosave, Trash, Restore, kalıcı silme, SQLite `VACUUM` |
-| **Gizlilik** | Offline çalışma, login yok, telemetry yok, zorunlu cloud servisi yok |
+| **Gizlilik** | DevNest hesabı yok, telemetry yok, zorunlu cloud servisi yok; GitHub bağlantısı isteğe bağlı ve read-only |
 
 ## Hızlı indirme
 
@@ -177,6 +244,12 @@ Bir satırı görev haline getirmek için toolbar'daki checkbox düğmesini veya
 İşaretlenen görevlerin metni otomatik olarak üstü çizili hale gelir. İşaret kaldırıldığında strikethrough da kaldırılır.
 
 **Auto Checkbox** açıkken dolu bir görev satırında <kbd>Enter</kbd> yeni bir checkbox satırı oluşturur. Boş checkbox satırında tekrar <kbd>Enter</kbd> normal metne döner. <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> ile görev seviyesini değiştirebilirsiniz.
+
+## List Mode ve Double Enter
+
+Toolbar'daki **List Mode** açıldığında mevcut satıra `1. ` eklenir ve her <kbd>Enter</kbd> basışında `2. `, `3. `, `4. ` şeklinde sıra devam eder. Birden fazla satır seçiliyken List Mode açılırsa seçili satırlar 1'den başlayarak topluca numaralandırılır. Bu numaralar Qt'nin görsel liste marker'ları değil, doğrudan notun içindeki metin karakterleridir; bu yüzden <kbd>Ctrl</kbd> + <kbd>A</kbd>, kopyalama ve TXT dışa aktarmada numaralar da dahil edilir.
+
+**Double Enter** açıkken tek bir <kbd>Enter</kbd> iki satır aşağı ilerler ve arada bir boş satır bırakır. List Mode ile birlikte kullanıldığında sonraki sıra numarası boş satırdan sonra oluşturulur.
 
 ## TXT içe / dışa aktarma
 
@@ -362,8 +435,8 @@ Yeni bir sürüm yayınlarken:
 
 1. GitHub repository sayfasında **Releases** bölümünü açın.
 2. **Draft a new release** seçin.
-3. Örneğin `v1.2.5` şeklinde bir tag oluşturun.
-4. Release başlığını örneğin `DevNest 1.2.5` yapın.
+3. Örneğin `v2.0.0` şeklinde bir tag oluşturun.
+4. Release başlığını örneğin `DevNest 2.0.0` yapın.
 5. `dist\DevNest.exe` dosyasını release asset olarak yükleyin.
 6. Release'i yayınlayın.
 
@@ -405,6 +478,12 @@ It does not require a browser, an account or a network connection. Notes stay on
 
 ### Highlights
 
+### DevNest 2.0 Engineering Context
+
+DevNest 2.0 keeps the existing editor, task and diagram engine while attaching documents to real Git repository context. A Note or Decision can link to a repository, directory, file, or selected diagram node. DevNest stores the current commit SHA as the review baseline. If linked paths change later, the document becomes **Needs Review**. No AI is involved; the signal comes only from Git history and changed file paths.
+
+See [`GITHUB_SETUP.md`](GITHUB_SETUP.md) for the GitHub App configuration.
+
 | Area | Features |
 |---|---|
 | **Notes** | Fast note creation, search, rename, duplicate and sorting |
@@ -414,7 +493,7 @@ It does not require a browser, an account or a network connection. Notes stay on
 | **Diagrams** | Drag-to-size shapes, text, directional connectors, zoom, pan and resize |
 | **Themes** | Matte Black, Midnight Slate, Graphite, Clean Light, Soft Gray, Warm Paper, Cool Mist and System |
 | **Data safety** | Autosave, Trash, Restore, permanent delete and SQLite `VACUUM` |
-| **Privacy** | Offline operation, no login, no telemetry and no mandatory cloud service |
+| **Privacy** | No DevNest account, no telemetry, no mandatory cloud; GitHub connection is optional and read-only |
 
 ## Quick download
 
@@ -629,8 +708,8 @@ When publishing a new version:
 
 1. Open **Releases** in the GitHub repository.
 2. Select **Draft a new release**.
-3. Create a tag such as `v1.2.5`.
-4. Use a release title such as `DevNest 1.2.5`.
+3. Create a tag such as `v2.0.0`.
+4. Use a release title such as `DevNest 2.0.0`.
 5. Upload `dist\DevNest.exe` as a release asset.
 6. Publish the release.
 
@@ -673,7 +752,7 @@ PyInstaller
 DevNest is designed to work locally without a web server, browser frontend, mandatory cloud account or telemetry.
 
 <p align="center">
-  <sub>DevNest 1.2.5 · Native desktop workspace for everyday development notes and planning.</sub>
+  <sub>DevNest 2.0.0 · Native desktop workspace for everyday development notes and planning.</sub>
 </p>
 ````
 
@@ -693,12 +772,19 @@ from __future__ import annotations
 APP_NAME = "DevNest"
 ORGANIZATION_NAME = "DevNest"
 ORGANIZATION_DOMAIN = "devnest.local"
-VERSION = "1.2.5"
+VERSION = "2.0.0"
 DEFAULT_NOTE_TITLE = "Untitled Note"
 DEFAULT_AUTOSAVE_DELAY_MS = 750
 MIN_AUTOSAVE_DELAY_MS = 300
 MAX_AUTOSAVE_DELAY_MS = 5000
 TAB_SPACES = 4
+
+# Fill these once after registering the DevNest GitHub App. Client IDs are public
+# identifiers and are safe to ship in a desktop binary; never embed a client
+# secret or private key. Leaving CLIENT_ID empty makes DevNest ask the developer
+# for it on first GitHub connection, which is useful during development.
+GITHUB_APP_CLIENT_ID = ""
+GITHUB_APP_INSTALL_URL = ""
 
 SHORTCUTS: dict[str, str] = {
     "New Note": "Ctrl+N",
@@ -725,12 +811,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 from app.constants import DEFAULT_NOTE_TITLE
-from app.models import Note, NoteSummary
+from app.models import ExternalRef, Note, NoteSummary, Project, Repository, ResourceLink
 
 
 def utc_now_iso() -> str:
@@ -742,7 +828,14 @@ class DatabaseError(RuntimeError):
 
 
 class Database:
-    SCHEMA_VERSION = 1
+    """SQLite persistence layer.
+
+    Schema migrations are deliberately additive so databases created by DevNest
+    1.x keep every note and diagram intact while gaining the project/repository
+    context model.
+    """
+
+    SCHEMA_VERSION = 5
 
     def __init__(self, path: Path | str | None = None) -> None:
         if path is None:
@@ -765,6 +858,8 @@ class Database:
     def _migrate(self) -> None:
         try:
             version = int(self.connection.execute("PRAGMA user_version").fetchone()[0])
+            if 0 < version < 2:
+                self._backup_legacy_database()
             if version > self.SCHEMA_VERSION:
                 raise DatabaseError(
                     f"Database schema {version} is newer than supported schema {self.SCHEMA_VERSION}."
@@ -782,12 +877,10 @@ class Database:
                             updated_at TEXT NOT NULL,
                             is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1))
                         );
-
                         CREATE INDEX IF NOT EXISTS idx_notes_deleted_updated
                             ON notes(is_deleted, updated_at DESC);
                         CREATE INDEX IF NOT EXISTS idx_notes_title
                             ON notes(title COLLATE NOCASE);
-
                         CREATE TABLE IF NOT EXISTS diagrams (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             note_id INTEGER NOT NULL UNIQUE,
@@ -795,49 +888,300 @@ class Database:
                             updated_at TEXT NOT NULL,
                             FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE
                         );
-
                         CREATE TABLE IF NOT EXISTS settings (
                             key TEXT PRIMARY KEY,
                             value TEXT NOT NULL
                         );
-
                         PRAGMA user_version = 1;
                         """
                     )
+                version = 1
+
+            if version < 2:
+                with self.connection:
+                    self.connection.executescript(
+                        """
+                        CREATE TABLE IF NOT EXISTS projects (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            uuid TEXT NOT NULL UNIQUE,
+                            name TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS repositories (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            project_id INTEGER NOT NULL,
+                            uuid TEXT NOT NULL UNIQUE,
+                            provider TEXT NOT NULL DEFAULT 'git',
+                            local_path TEXT,
+                            github_owner TEXT,
+                            github_repo TEXT,
+                            default_branch TEXT,
+                            last_seen_sha TEXT,
+                            last_scanned_at TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                            UNIQUE(project_id, local_path),
+                            UNIQUE(project_id, github_owner, github_repo)
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_repositories_project ON repositories(project_id);
+                        """
+                    )
+                    columns = {row[1] for row in self.connection.execute("PRAGMA table_info(notes)")}
+                    if "uuid" not in columns:
+                        self.connection.execute("ALTER TABLE notes ADD COLUMN uuid TEXT")
+                    if "project_id" not in columns:
+                        self.connection.execute("ALTER TABLE notes ADD COLUMN project_id INTEGER REFERENCES projects(id)")
+                    if "note_kind" not in columns:
+                        self.connection.execute("ALTER TABLE notes ADD COLUMN note_kind TEXT NOT NULL DEFAULT 'note'")
+
+                    now = utc_now_iso()
+                    existing = self.connection.execute("SELECT id FROM projects ORDER BY id LIMIT 1").fetchone()
+                    if existing is None:
+                        cur = self.connection.execute(
+                            "INSERT INTO projects(uuid, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                            (uuid.uuid4().hex, "Personal", now, now),
+                        )
+                        default_project_id = int(cur.lastrowid)
+                    else:
+                        default_project_id = int(existing["id"])
+                    self.connection.execute(
+                        "UPDATE notes SET project_id = ? WHERE project_id IS NULL", (default_project_id,)
+                    )
+                    for row in self.connection.execute("SELECT id FROM notes WHERE uuid IS NULL OR uuid = ''").fetchall():
+                        self.connection.execute("UPDATE notes SET uuid = ? WHERE id = ?", (uuid.uuid4().hex, row["id"]))
+                    self.connection.executescript(
+                        """
+                        CREATE INDEX IF NOT EXISTS idx_notes_project_updated
+                            ON notes(project_id, is_deleted, updated_at DESC);
+                        PRAGMA user_version = 2;
+                        """
+                    )
+                version = 2
+
+            if version < 3:
+                with self.connection:
+                    self.connection.executescript(
+                        """
+                        CREATE TABLE IF NOT EXISTS resource_links (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            note_id INTEGER NOT NULL,
+                            repository_id INTEGER NOT NULL,
+                            resource_type TEXT NOT NULL CHECK(resource_type IN ('repository','directory','file')),
+                            resource_value TEXT NOT NULL DEFAULT '',
+                            display_label TEXT NOT NULL DEFAULT '',
+                            diagram_item_id TEXT,
+                            baseline_sha TEXT,
+                            last_checked_sha TEXT,
+                            needs_review INTEGER NOT NULL DEFAULT 0 CHECK(needs_review IN (0,1)),
+                            change_count INTEGER NOT NULL DEFAULT 0,
+                            last_changed_at TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_resource_links_note ON resource_links(note_id);
+                        CREATE INDEX IF NOT EXISTS idx_resource_links_repo ON resource_links(repository_id);
+                        CREATE TABLE IF NOT EXISTS external_refs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            note_id INTEGER NOT NULL,
+                            repository_id INTEGER NOT NULL,
+                            ref_type TEXT NOT NULL CHECK(ref_type IN ('pull_request','commit','branch')),
+                            ref_value TEXT NOT NULL,
+                            title TEXT NOT NULL DEFAULT '',
+                            url TEXT,
+                            created_at TEXT NOT NULL,
+                            FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+                            UNIQUE(note_id, repository_id, ref_type, ref_value)
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_external_refs_note ON external_refs(note_id);
+                        CREATE TABLE IF NOT EXISTS repository_changes (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            repository_id INTEGER NOT NULL,
+                            from_sha TEXT,
+                            to_sha TEXT NOT NULL,
+                            changed_files_json TEXT NOT NULL DEFAULT '[]',
+                            commit_count INTEGER NOT NULL DEFAULT 0,
+                            detected_at TEXT NOT NULL,
+                            FOREIGN KEY(repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_repository_changes_repo
+                            ON repository_changes(repository_id, detected_at DESC);
+                        PRAGMA user_version = 3;
+                        """
+                    )
+                version = 3
+
+            if version < 4:
+                with self.connection:
+                    self.connection.executescript(
+                        """
+                        CREATE TABLE IF NOT EXISTS review_events (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            note_id INTEGER NOT NULL,
+                            repository_id INTEGER NOT NULL,
+                            reviewed_sha TEXT NOT NULL,
+                            reviewed_at TEXT NOT NULL,
+                            FOREIGN KEY(note_id) REFERENCES notes(id) ON DELETE CASCADE,
+                            FOREIGN KEY(repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_review_events_note
+                            ON review_events(note_id, reviewed_at DESC);
+                        PRAGMA user_version = 4;
+                        """
+                    )
+                version = 4
+
+            if version < 5:
+                with self.connection:
+                    columns = {row[1] for row in self.connection.execute("PRAGMA table_info(repositories)")}
+                    if "github_installation_id" not in columns:
+                        self.connection.execute("ALTER TABLE repositories ADD COLUMN github_installation_id INTEGER")
+                    self.connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_uuid ON notes(uuid) WHERE uuid IS NOT NULL")
+                    self.connection.execute("PRAGMA user_version = 5")
         except sqlite3.Error as exc:
             raise DatabaseError(f"Database migration failed: {exc}") from exc
 
+    def _backup_legacy_database(self) -> None:
+        backup_path = self.path.with_name(f"{self.path.stem}.pre-v2.backup{self.path.suffix}")
+        if backup_path.exists():
+            return
+        target = sqlite3.connect(backup_path)
+        try:
+            self.connection.backup(target)
+        finally:
+            target.close()
+
     @staticmethod
     def _note_from_row(row: sqlite3.Row) -> Note:
+        keys = set(row.keys())
         return Note(
-            id=int(row["id"]),
-            title=str(row["title"]),
-            content_html=str(row["content_html"]),
-            content_plain=str(row["content_plain"]),
-            created_at=str(row["created_at"]),
-            updated_at=str(row["updated_at"]),
-            is_deleted=bool(row["is_deleted"]),
+            id=int(row["id"]), title=str(row["title"]), content_html=str(row["content_html"]),
+            content_plain=str(row["content_plain"]), created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]), is_deleted=bool(row["is_deleted"]),
+            uuid=str(row["uuid"] or "") if "uuid" in keys else "",
+            project_id=int(row["project_id"]) if "project_id" in keys and row["project_id"] is not None else None,
+            note_kind=str(row["note_kind"] or "note") if "note_kind" in keys else "note",
         )
 
-    def create_note(
-        self,
-        title: str = DEFAULT_NOTE_TITLE,
-        content_html: str = "",
-        content_plain: str = "",
-    ) -> Note:
+    @staticmethod
+    def _project_from_row(row: sqlite3.Row) -> Project:
+        return Project(int(row["id"]), str(row["uuid"]), str(row["name"]), str(row["created_at"]), str(row["updated_at"]))
+
+    @staticmethod
+    def _repo_from_row(row: sqlite3.Row) -> Repository:
+        return Repository(
+            id=int(row["id"]), project_id=int(row["project_id"]), uuid=str(row["uuid"]),
+            provider=str(row["provider"]), local_path=str(row["local_path"]) if row["local_path"] else None,
+            github_owner=str(row["github_owner"]) if row["github_owner"] else None,
+            github_repo=str(row["github_repo"]) if row["github_repo"] else None,
+            github_installation_id=int(row["github_installation_id"]) if "github_installation_id" in row.keys() and row["github_installation_id"] is not None else None,
+            default_branch=str(row["default_branch"]) if row["default_branch"] else None,
+            last_seen_sha=str(row["last_seen_sha"]) if row["last_seen_sha"] else None,
+            last_scanned_at=str(row["last_scanned_at"]) if row["last_scanned_at"] else None,
+            created_at=str(row["created_at"]), updated_at=str(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _resource_from_row(row: sqlite3.Row) -> ResourceLink:
+        return ResourceLink(
+            id=int(row["id"]), note_id=int(row["note_id"]), repository_id=int(row["repository_id"]),
+            resource_type=str(row["resource_type"]), resource_value=str(row["resource_value"]),
+            display_label=str(row["display_label"]), diagram_item_id=str(row["diagram_item_id"]) if row["diagram_item_id"] else None,
+            baseline_sha=str(row["baseline_sha"]) if row["baseline_sha"] else None,
+            last_checked_sha=str(row["last_checked_sha"]) if row["last_checked_sha"] else None,
+            needs_review=bool(row["needs_review"]), change_count=int(row["change_count"]),
+            last_changed_at=str(row["last_changed_at"]) if row["last_changed_at"] else None,
+            created_at=str(row["created_at"]), updated_at=str(row["updated_at"]),
+        )
+
+    def create_project(self, name: str) -> Project:
         now = utc_now_iso()
+        safe = name.strip() or "Untitled Project"
+        with self.connection:
+            cur = self.connection.execute(
+                "INSERT INTO projects(uuid,name,created_at,updated_at) VALUES (?,?,?,?)",
+                (uuid.uuid4().hex, safe, now, now),
+            )
+        return self.get_project(int(cur.lastrowid))  # type: ignore[return-value]
+
+    def list_projects(self) -> list[Project]:
+        return [self._project_from_row(r) for r in self.connection.execute("SELECT * FROM projects ORDER BY name COLLATE NOCASE").fetchall()]
+
+    def get_project(self, project_id: int) -> Project | None:
+        row = self.connection.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
+        return self._project_from_row(row) if row else None
+
+    def rename_project(self, project_id: int, name: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE projects SET name=?, updated_at=? WHERE id=?", (name.strip() or "Untitled Project", utc_now_iso(), project_id))
+
+    def delete_project(self, project_id: int) -> None:
+        count = int(self.connection.execute("SELECT COUNT(*) FROM projects").fetchone()[0])
+        if count <= 1:
+            raise DatabaseError("DevNest must keep at least one project.")
+        fallback = self.connection.execute("SELECT id FROM projects WHERE id<>? ORDER BY id LIMIT 1", (project_id,)).fetchone()
+        if fallback is None:
+            raise DatabaseError("No fallback project exists.")
+        with self.connection:
+            self.connection.execute("UPDATE notes SET project_id=? WHERE project_id=?", (int(fallback["id"]), project_id))
+            self.connection.execute("DELETE FROM projects WHERE id=?", (project_id,))
+
+    def add_repository(self, project_id: int, *, local_path: str | None = None, github_owner: str | None = None,
+                       github_repo: str | None = None, github_installation_id: int | None = None,
+                       default_branch: str | None = None, provider: str = "git") -> Repository:
+        now = utc_now_iso()
+        with self.connection:
+            cur = self.connection.execute(
+                """INSERT INTO repositories(project_id,uuid,provider,local_path,github_owner,github_repo,github_installation_id,default_branch,
+                   created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (project_id, uuid.uuid4().hex, provider, local_path, github_owner, github_repo, github_installation_id, default_branch, now, now),
+            )
+        return self.get_repository(int(cur.lastrowid))  # type: ignore[return-value]
+
+    def list_repositories(self, project_id: int) -> list[Repository]:
+        return [self._repo_from_row(r) for r in self.connection.execute("SELECT * FROM repositories WHERE project_id=? ORDER BY id", (project_id,)).fetchall()]
+
+    def get_repository(self, repository_id: int) -> Repository | None:
+        row = self.connection.execute("SELECT * FROM repositories WHERE id=?", (repository_id,)).fetchone()
+        return self._repo_from_row(row) if row else None
+
+    def update_repository(self, repository_id: int, **values: object) -> None:
+        allowed = {"local_path", "github_owner", "github_repo", "github_installation_id", "default_branch", "last_seen_sha", "last_scanned_at"}
+        fields = [(k, v) for k, v in values.items() if k in allowed]
+        if not fields:
+            return
+        fields.append(("updated_at", utc_now_iso()))
+        sql = "UPDATE repositories SET " + ", ".join(f"{key}=?" for key, _ in fields) + " WHERE id=?"
+        with self.connection:
+            self.connection.execute(sql, [value for _, value in fields] + [repository_id])
+
+    def remove_repository(self, repository_id: int) -> None:
+        with self.connection:
+            self.connection.execute("DELETE FROM repositories WHERE id=?", (repository_id,))
+
+    def create_note(self, title: str = DEFAULT_NOTE_TITLE, content_html: str = "", content_plain: str = "",
+                    project_id: int | None = None, note_kind: str = "note") -> Note:
+        now = utc_now_iso()
+        if project_id is None:
+            project = self.connection.execute("SELECT id FROM projects ORDER BY id LIMIT 1").fetchone()
+            if project is None:
+                project_id = self.create_project("Personal").id
+            else:
+                project_id = int(project["id"])
         safe_title = title.strip() or DEFAULT_NOTE_TITLE
+        kind = note_kind if note_kind in {"note", "decision"} else "note"
         try:
             with self.connection:
                 cursor = self.connection.execute(
-                    """
-                    INSERT INTO notes(title, content_html, content_plain, created_at, updated_at, is_deleted)
-                    VALUES (?, ?, ?, ?, ?, 0)
-                    """,
-                    (safe_title, content_html, content_plain, now, now),
+                    """INSERT INTO notes(title,content_html,content_plain,created_at,updated_at,is_deleted,uuid,project_id,note_kind)
+                       VALUES (?,?,?,?,?,0,?,?,?)""",
+                    (safe_title, content_html, content_plain, now, now, uuid.uuid4().hex, project_id, kind),
                 )
-            note_id = int(cursor.lastrowid)
-            note = self.get_note(note_id)
+            note = self.get_note(int(cursor.lastrowid))
             if note is None:
                 raise DatabaseError("Created note could not be reloaded.")
             return note
@@ -846,23 +1190,17 @@ class Database:
 
     def get_note(self, note_id: int, include_deleted: bool = False) -> Note | None:
         sql = "SELECT * FROM notes WHERE id = ?"
-        params: tuple[object, ...] = (note_id,)
         if not include_deleted:
             sql += " AND is_deleted = 0"
-        row = self.connection.execute(sql, params).fetchone()
+        row = self.connection.execute(sql, (note_id,)).fetchone()
         return self._note_from_row(row) if row else None
 
     def update_note(self, note_id: int, title: str, content_html: str, content_plain: str) -> None:
-        now = utc_now_iso()
-        safe_title = title.strip() or DEFAULT_NOTE_TITLE
+        now = utc_now_iso(); safe_title = title.strip() or DEFAULT_NOTE_TITLE
         try:
             with self.connection:
                 cursor = self.connection.execute(
-                    """
-                    UPDATE notes
-                    SET title = ?, content_html = ?, content_plain = ?, updated_at = ?
-                    WHERE id = ? AND is_deleted = 0
-                    """,
+                    "UPDATE notes SET title=?, content_html=?, content_plain=?, updated_at=? WHERE id=? AND is_deleted=0",
                     (safe_title, content_html, content_plain, now, note_id),
                 )
             if cursor.rowcount == 0:
@@ -870,178 +1208,274 @@ class Database:
         except sqlite3.Error as exc:
             raise DatabaseError(f"Could not save note: {exc}") from exc
 
+    def set_note_kind(self, note_id: int, note_kind: str) -> None:
+        if note_kind not in {"note", "decision"}:
+            raise DatabaseError("Unknown document type.")
+        with self.connection:
+            self.connection.execute("UPDATE notes SET note_kind=?, updated_at=? WHERE id=?", (note_kind, utc_now_iso(), note_id))
+
+    def move_note_to_project(self, note_id: int, project_id: int) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE notes SET project_id=?, updated_at=? WHERE id=?", (project_id, utc_now_iso(), note_id))
+
     def rename_note(self, note_id: int, title: str) -> None:
         note = self.get_note(note_id)
-        if note is None:
-            raise DatabaseError("Note not found.")
+        if note is None: raise DatabaseError("Note not found.")
         self.update_note(note_id, title, note.content_html, note.content_plain)
 
     def duplicate_note(self, note_id: int) -> Note:
         source = self.get_note(note_id)
-        if source is None:
-            raise DatabaseError("Note not found.")
-        copy = self.create_note(
-            title=f"{source.title} Copy",
-            content_html=source.content_html,
-            content_plain=source.content_plain,
-        )
+        if source is None: raise DatabaseError("Note not found.")
+        copy = self.create_note(f"{source.title} Copy", source.content_html, source.content_plain, source.project_id, source.note_kind)
         diagram = self.get_diagram(note_id)
-        if diagram:
-            self.save_diagram(copy.id, diagram)
+        if diagram: self.save_diagram(copy.id, diagram)
         return copy
 
-    def list_notes(self, search: str = "", sort: str = "updated") -> list[NoteSummary]:
-        where = ["is_deleted = 0"]
-        params: list[object] = []
+    def list_notes(self, search: str = "", sort: str = "updated", project_id: int | None = None) -> list[NoteSummary]:
+        where = ["n.is_deleted = 0"]; params: list[object] = []
+        if project_id is not None:
+            where.append("n.project_id = ?"); params.append(project_id)
         term = search.strip()
         if term:
-            where.append("(title LIKE ? COLLATE NOCASE OR content_plain LIKE ? COLLATE NOCASE)")
-            like = f"%{term}%"
-            params.extend([like, like])
-        order_by = "updated_at DESC" if sort == "updated" else "title COLLATE NOCASE ASC, updated_at DESC"
+            where.append("(n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE)")
+            like = f"%{term}%"; params.extend([like, like])
+        order_by = "n.updated_at DESC" if sort == "updated" else "n.title COLLATE NOCASE ASC, n.updated_at DESC"
         rows = self.connection.execute(
-            f"""
-            SELECT id, title,
-                   substr(replace(replace(content_plain, char(10), ' '), char(13), ' '), 1, 140) AS preview,
-                   created_at, updated_at, is_deleted
-            FROM notes
-            WHERE {' AND '.join(where)}
-            ORDER BY {order_by}
-            """,
-            params,
-        ).fetchall()
-        return [
-            NoteSummary(
-                id=int(row["id"]),
-                title=str(row["title"]),
-                preview=str(row["preview"] or ""),
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
-                is_deleted=bool(row["is_deleted"]),
-            )
-            for row in rows
-        ]
+            f"""SELECT n.id,n.title,substr(replace(replace(n.content_plain,char(10),' '),char(13),' '),1,140) preview,
+                n.created_at,n.updated_at,n.is_deleted,n.project_id,n.note_kind,
+                EXISTS(SELECT 1 FROM resource_links r WHERE r.note_id=n.id AND r.needs_review=1) needs_review
+                FROM notes n WHERE {' AND '.join(where)} ORDER BY {order_by}""", params).fetchall()
+        return [NoteSummary(int(r["id"]), str(r["title"]), str(r["preview"] or ""), str(r["created_at"]), str(r["updated_at"]),
+                            bool(r["is_deleted"]), int(r["project_id"]) if r["project_id"] is not None else None,
+                            str(r["note_kind"] or "note"), bool(r["needs_review"])) for r in rows]
 
     def list_trash(self) -> list[NoteSummary]:
         rows = self.connection.execute(
-            """
-            SELECT id, title,
-                   substr(replace(replace(content_plain, char(10), ' '), char(13), ' '), 1, 140) AS preview,
-                   created_at, updated_at, is_deleted
-            FROM notes WHERE is_deleted = 1 ORDER BY updated_at DESC
-            """
-        ).fetchall()
-        return [
-            NoteSummary(
-                id=int(row["id"]),
-                title=str(row["title"]),
-                preview=str(row["preview"] or ""),
-                created_at=str(row["created_at"]),
-                updated_at=str(row["updated_at"]),
-                is_deleted=True,
-            )
-            for row in rows
-        ]
+            """SELECT n.id,n.title,substr(replace(replace(n.content_plain,char(10),' '),char(13),' '),1,140) preview,
+               n.created_at,n.updated_at,n.is_deleted,n.project_id,n.note_kind,
+               EXISTS(SELECT 1 FROM resource_links r WHERE r.note_id=n.id AND r.needs_review=1) needs_review
+               FROM notes n WHERE n.is_deleted=1 ORDER BY n.updated_at DESC""").fetchall()
+        return [NoteSummary(int(r["id"]),str(r["title"]),str(r["preview"] or ""),str(r["created_at"]),str(r["updated_at"]),True,
+                            int(r["project_id"]) if r["project_id"] is not None else None,str(r["note_kind"] or "note"),bool(r["needs_review"])) for r in rows]
 
     def soft_delete_note(self, note_id: int) -> None:
-        try:
-            with self.connection:
-                self.connection.execute(
-                    "UPDATE notes SET is_deleted = 1, updated_at = ? WHERE id = ?",
-                    (utc_now_iso(), note_id),
-                )
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not move note to Trash: {exc}") from exc
+        with self.connection: self.connection.execute("UPDATE notes SET is_deleted=1,updated_at=? WHERE id=?", (utc_now_iso(), note_id))
 
     def restore_note(self, note_id: int) -> None:
-        try:
-            with self.connection:
-                self.connection.execute(
-                    "UPDATE notes SET is_deleted = 0, updated_at = ? WHERE id = ?",
-                    (utc_now_iso(), note_id),
-                )
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not restore note: {exc}") from exc
+        with self.connection: self.connection.execute("UPDATE notes SET is_deleted=0,updated_at=? WHERE id=?", (utc_now_iso(), note_id))
 
     def permanently_delete_note(self, note_id: int) -> None:
-        try:
-            with self.connection:
-                self.connection.execute("DELETE FROM notes WHERE id = ? AND is_deleted = 1", (note_id,))
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not permanently delete note: {exc}") from exc
+        with self.connection: self.connection.execute("DELETE FROM notes WHERE id=? AND is_deleted=1", (note_id,))
 
     def empty_trash(self) -> int:
-        try:
-            with self.connection:
-                cursor = self.connection.execute("DELETE FROM notes WHERE is_deleted = 1")
-            return int(cursor.rowcount)
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not empty Trash: {exc}") from exc
+        with self.connection: cursor = self.connection.execute("DELETE FROM notes WHERE is_deleted=1")
+        return int(cursor.rowcount)
 
     def save_diagram(self, note_id: int, data: dict[str, object] | str) -> None:
         data_json = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         now = utc_now_iso()
-        try:
-            with self.connection:
-                self.connection.execute(
-                    """
-                    INSERT INTO diagrams(note_id, data_json, updated_at)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(note_id) DO UPDATE SET
-                        data_json = excluded.data_json,
-                        updated_at = excluded.updated_at
-                    """,
-                    (note_id, data_json, now),
-                )
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not save diagram: {exc}") from exc
+        with self.connection:
+            self.connection.execute("""INSERT INTO diagrams(note_id,data_json,updated_at) VALUES (?,?,?)
+                ON CONFLICT(note_id) DO UPDATE SET data_json=excluded.data_json,updated_at=excluded.updated_at""", (note_id, data_json, now))
 
     def get_diagram(self, note_id: int) -> dict[str, object]:
-        row = self.connection.execute("SELECT data_json FROM diagrams WHERE note_id = ?", (note_id,)).fetchone()
-        if not row:
-            return {"items": [], "edges": [], "paths": []}
+        row = self.connection.execute("SELECT data_json FROM diagrams WHERE note_id=?", (note_id,)).fetchone()
+        if not row: return {"items": [], "edges": [], "paths": []}
         try:
-            data = json.loads(str(row["data_json"]))
-            if isinstance(data, dict):
-                return data
+            data = json.loads(str(row["data_json"])); return data if isinstance(data, dict) else {"items": [], "edges": [], "paths": []}
         except json.JSONDecodeError:
-            pass
-        return {"items": [], "edges": [], "paths": []}
+            return {"items": [], "edges": [], "paths": []}
+
+    def add_resource_link(self, note_id: int, repository_id: int, resource_type: str, resource_value: str,
+                          display_label: str = "", diagram_item_id: str | None = None, baseline_sha: str | None = None) -> ResourceLink:
+        if resource_type not in {"repository", "directory", "file"}: raise DatabaseError("Unsupported resource link type.")
+        value = resource_value.replace("\\", "/").strip("/") if resource_type != "repository" else ""
+        now = utc_now_iso(); label = display_label.strip() or (value or "Repository")
+        with self.connection:
+            cur = self.connection.execute(
+                """INSERT INTO resource_links(note_id,repository_id,resource_type,resource_value,display_label,diagram_item_id,
+                   baseline_sha,last_checked_sha,needs_review,change_count,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,0,0,?,?)""",
+                (note_id, repository_id, resource_type, value, label, diagram_item_id, baseline_sha, baseline_sha, now, now))
+        return self.get_resource_link(int(cur.lastrowid))  # type: ignore[return-value]
+
+    def get_resource_link(self, link_id: int) -> ResourceLink | None:
+        row = self.connection.execute("SELECT * FROM resource_links WHERE id=?", (link_id,)).fetchone()
+        return self._resource_from_row(row) if row else None
+
+    def list_resource_links(self, note_id: int) -> list[ResourceLink]:
+        return [self._resource_from_row(r) for r in self.connection.execute("SELECT * FROM resource_links WHERE note_id=? ORDER BY id", (note_id,)).fetchall()]
+
+    def remove_resource_link(self, link_id: int) -> None:
+        with self.connection: self.connection.execute("DELETE FROM resource_links WHERE id=?", (link_id,))
+
+    def mark_link_changed(self, link_id: int, checked_sha: str, change_count: int) -> None:
+        now = utc_now_iso()
+        with self.connection:
+            self.connection.execute("""UPDATE resource_links SET last_checked_sha=?, needs_review=1,
+                change_count=?, last_changed_at=?, updated_at=? WHERE id=?""", (checked_sha, max(1, change_count), now, now, link_id))
+
+    def mark_link_checked(self, link_id: int, checked_sha: str) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE resource_links SET last_checked_sha=?,updated_at=? WHERE id=?", (checked_sha, utc_now_iso(), link_id))
+
+    def mark_note_reviewed(self, note_id: int, repository_id: int, sha: str) -> None:
+        now = utc_now_iso()
+        with self.connection:
+            self.connection.execute("""UPDATE resource_links SET baseline_sha=?,last_checked_sha=?,needs_review=0,change_count=0,
+                last_changed_at=NULL,updated_at=? WHERE note_id=? AND repository_id=?""", (sha, sha, now, note_id, repository_id))
+            self.connection.execute("INSERT INTO review_events(note_id,repository_id,reviewed_sha,reviewed_at) VALUES (?,?,?,?)", (note_id, repository_id, sha, now))
+
+    def add_external_ref(self, note_id: int, repository_id: int, ref_type: str, ref_value: str, title: str = "", url: str | None = None) -> ExternalRef:
+        if ref_type not in {"pull_request", "commit", "branch"}: raise DatabaseError("Unsupported reference type.")
+        with self.connection:
+            self.connection.execute("""INSERT INTO external_refs(note_id,repository_id,ref_type,ref_value,title,url,created_at)
+                VALUES (?,?,?,?,?,?,?) ON CONFLICT(note_id,repository_id,ref_type,ref_value)
+                DO UPDATE SET title=excluded.title,url=excluded.url""", (note_id, repository_id, ref_type, ref_value, title, url, utc_now_iso()))
+        row = self.connection.execute("SELECT * FROM external_refs WHERE note_id=? AND repository_id=? AND ref_type=? AND ref_value=?",
+                                      (note_id, repository_id, ref_type, ref_value)).fetchone()
+        return ExternalRef(int(row["id"]), int(row["note_id"]), int(row["repository_id"]), str(row["ref_type"]), str(row["ref_value"]), str(row["title"]), str(row["url"]) if row["url"] else None, str(row["created_at"]))
+
+    def list_external_refs(self, note_id: int) -> list[ExternalRef]:
+        rows = self.connection.execute("SELECT * FROM external_refs WHERE note_id=? ORDER BY id", (note_id,)).fetchall()
+        return [ExternalRef(int(r["id"]),int(r["note_id"]),int(r["repository_id"]),str(r["ref_type"]),str(r["ref_value"]),str(r["title"]),str(r["url"]) if r["url"] else None,str(r["created_at"])) for r in rows]
+
+    def remove_external_ref(self, ref_id: int) -> None:
+        with self.connection: self.connection.execute("DELETE FROM external_refs WHERE id=?", (ref_id,))
+
+    def record_repository_change(self, repository_id: int, from_sha: str | None, to_sha: str, changed_files: list[str], commit_count: int) -> None:
+        with self.connection:
+            self.connection.execute("INSERT INTO repository_changes(repository_id,from_sha,to_sha,changed_files_json,commit_count,detected_at) VALUES (?,?,?,?,?,?)",
+                                    (repository_id, from_sha, to_sha, json.dumps(changed_files, ensure_ascii=False), commit_count, utc_now_iso()))
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
-        row = self.connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
-        return str(row["value"]) if row else default
+        row = self.connection.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone(); return str(row["value"]) if row else default
 
     def set_setting(self, key: str, value: str) -> None:
-        with self.connection:
-            self.connection.execute(
-                "INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
+        with self.connection: self.connection.execute("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
 
     def optimize(self) -> None:
-        try:
-            self.connection.execute("VACUUM")
-        except sqlite3.Error as exc:
-            raise DatabaseError(f"Could not optimize database: {exc}") from exc
+        try: self.connection.execute("VACUUM")
+        except sqlite3.Error as exc: raise DatabaseError(f"Could not optimize database: {exc}") from exc
 
     def close(self) -> None:
-        try:
-            self.connection.close()
-        except sqlite3.Error:
-            pass
+        try: self.connection.close()
+        except sqlite3.Error: pass
 
-    def __enter__(self) -> "Database":
-        return self
-
-    def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        self.close()
+    def __enter__(self) -> "Database": return self
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: self.close()
 ````
 
 ## `app/dialogs/__init__.py`
 
 ````python
 
+````
+
+## `app/dialogs/github.py`
+
+````python
+from __future__ import annotations
+
+import time
+import webbrowser
+
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
+)
+
+from app.services.github_client import GitHubAuthorizationPending, GitHubClient, GitHubError, GitHubSlowDown
+
+
+class GitHubConnectDialog(QDialog):
+    def __init__(self, client: GitHubClient, parent=None) -> None:
+        super().__init__(parent)
+        self.client = client
+        self.device = None
+        self.deadline = 0.0
+        self.setWindowTitle("Connect GitHub")
+        self.setMinimumWidth(480)
+        root = QVBoxLayout(self)
+        intro = QLabel("DevNest uses GitHub Device Flow. Your browser handles authorization; DevNest never asks for your GitHub password.")
+        intro.setWordWrap(True); root.addWidget(intro)
+        self.code = QLineEdit(); self.code.setReadOnly(True); self.code.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.code.setStyleSheet("font-size: 22px; font-weight: 700; letter-spacing: 2px; padding: 8px;")
+        root.addWidget(self.code)
+        row = QHBoxLayout(); self.open_button = QPushButton("Open GitHub"); self.open_button.clicked.connect(self._open)
+        self.start_button = QPushButton("Generate code"); self.start_button.clicked.connect(self.start)
+        row.addWidget(self.start_button); row.addWidget(self.open_button); root.addLayout(row)
+        self.status = QLabel("Generate a code to begin."); self.status.setWordWrap(True); root.addWidget(self.status)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+        self.timer = QTimer(self); self.timer.timeout.connect(self._poll)
+        QTimer.singleShot(0, self.start)
+
+    def start(self) -> None:
+        try:
+            self.device = self.client.start_device_flow(); self.deadline = time.monotonic() + self.device.expires_in
+            self.code.setText(self.device.user_code); self.status.setText("Enter this code on GitHub, then approve DevNest.")
+            self.timer.start(max(5, self.device.interval) * 1000)
+        except GitHubError as exc:
+            self.status.setText(str(exc)); self.timer.stop()
+
+    def _open(self) -> None:
+        if self.device: webbrowser.open(self.device.verification_uri)
+
+    def _poll(self) -> None:
+        if not self.device: return
+        if time.monotonic() >= self.deadline:
+            self.timer.stop(); self.status.setText("Code expired. Generate a new code."); return
+        try:
+            self.client.poll_device_flow(self.device.device_code)
+            user = self.client.authenticated_user(); self.timer.stop()
+            self.status.setText(f"Connected as @{user.get('login', 'GitHub user')}"); QTimer.singleShot(400, self.accept)
+        except GitHubAuthorizationPending:
+            self.status.setText("Waiting for GitHub authorization…")
+        except GitHubSlowDown:
+            self.timer.setInterval(self.timer.interval() + 5000)
+        except GitHubError as exc:
+            self.timer.stop(); self.status.setText(str(exc))
+
+
+class GitHubRepositoryDialog(QDialog):
+    def __init__(self, client: GitHubClient, parent=None, install_url: str = "") -> None:
+        super().__init__(parent)
+        self.client = client; self.repositories: list[dict[str, object]] = []
+        self.setWindowTitle("GitHub Repositories"); self.resize(700, 560)
+        root = QVBoxLayout(self)
+        top = QHBoxLayout(); self.search = QLineEdit(); self.search.setPlaceholderText("Search repositories…")
+        refresh = QPushButton("Refresh"); refresh.clicked.connect(self.load)
+        top.addWidget(self.search, 1); top.addWidget(refresh)
+        if install_url:
+            manage = QPushButton("Manage GitHub access"); manage.clicked.connect(lambda: webbrowser.open(install_url)); top.addWidget(manage)
+        root.addLayout(top)
+        self.list = QListWidget(); self.list.itemDoubleClicked.connect(lambda _item, _column: self.accept()); root.addWidget(self.list, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+        self.search.textChanged.connect(self._filter); QTimer.singleShot(0, self.load)
+
+    def load(self) -> None:
+        try: self.repositories = self.client.list_repositories()
+        except GitHubError as exc:
+            QMessageBox.warning(self, "GitHub", str(exc)); return
+        self._filter(self.search.text())
+        if not self.repositories:
+            item = QListWidgetItem("No DevNest GitHub App repositories are available. Install/manage the app access, then Refresh.")
+            item.setFlags(Qt.ItemFlag.NoItemFlags); self.list.addItem(item)
+
+    def _filter(self, text: str) -> None:
+        term = text.strip().casefold(); self.list.clear()
+        for repo in self.repositories:
+            full = str(repo.get("full_name", ""))
+            if term and term not in full.casefold(): continue
+            privacy = "private" if repo.get("private") else "public"
+            item = QListWidgetItem(f"{full}   ·   {privacy}   ·   {repo.get('default_branch', 'main')}")
+            item.setData(Qt.ItemDataRole.UserRole, repo); self.list.addItem(item)
+
+    def selected_repository(self) -> dict[str, object] | None:
+        item = self.list.currentItem(); data = item.data(Qt.ItemDataRole.UserRole) if item else None
+        return data if isinstance(data, dict) else None
 ````
 
 ## `app/dialogs/preferences.py`
@@ -1097,9 +1531,9 @@ class PreferencesDialog(QDialog):
         self.tab_width.setValue(prefs.tab_width)
         self.auto_checkbox = QCheckBox("Auto Checkbox by default")
         self.auto_checkbox.setChecked(prefs.auto_checkbox_default)
-        self.blank_line_after_enter = QCheckBox("Leave one blank line after Enter")
+        self.blank_line_after_enter = QCheckBox("Double Enter")
         self.blank_line_after_enter.setChecked(prefs.blank_line_after_enter)
-        self.blank_line_after_enter.setToolTip("Pressing Enter advances by two lines, leaving one empty line in between.")
+        self.blank_line_after_enter.setToolTip("When active, one Enter advances by two lines and leaves one empty line in between.")
         self.word_wrap = QCheckBox("Word wrap")
         self.word_wrap.setChecked(prefs.word_wrap)
         editor_form.addRow("Font size:", self.font_size)
@@ -1138,6 +1572,84 @@ class PreferencesDialog(QDialog):
             blank_line_after_enter=self.blank_line_after_enter.isChecked(),
             word_wrap=self.word_wrap.isChecked(),
         )
+````
+
+## `app/dialogs/project.py`
+
+````python
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QVBoxLayout,
+)
+
+from app.services.local_git import GitError, GitRepositoryInfo, inspect_repository
+
+
+class ProjectDialog(QDialog):
+    def __init__(self, parent=None, *, name: str = "", local_path: str = "") -> None:
+        super().__init__(parent)
+        self.setWindowTitle("New Project")
+        self.setMinimumWidth(560)
+        self.repo_info: GitRepositoryInfo | None = None
+
+        root = QVBoxLayout(self)
+        intro = QLabel("Create a local-first DevNest project. A Git repository is optional and can be attached later.")
+        intro.setWordWrap(True); root.addWidget(intro)
+        form = QFormLayout(); root.addLayout(form)
+        self.name_edit = QLineEdit(name); self.name_edit.setPlaceholderText("Project name")
+        form.addRow("Name", self.name_edit)
+
+        path_row = QHBoxLayout()
+        self.path_edit = QLineEdit(local_path); self.path_edit.setPlaceholderText("C:\\Projects\\my-repo (optional)")
+        browse = QPushButton("Browse…"); browse.clicked.connect(self._browse)
+        inspect = QPushButton("Inspect Git"); inspect.clicked.connect(self._inspect)
+        path_row.addWidget(self.path_edit, 1); path_row.addWidget(browse); path_row.addWidget(inspect)
+        form.addRow("Local repository", path_row)
+
+        self.detected = QLabel("No repository inspected yet.")
+        self.detected.setWordWrap(True); root.addWidget(self.detected)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._accept); buttons.rejected.connect(self.reject); root.addWidget(buttons)
+
+    def _browse(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Select Git repository")
+        if path:
+            self.path_edit.setText(path)
+            if not self.name_edit.text().strip(): self.name_edit.setText(Path(path).name)
+            self._inspect()
+
+    def _inspect(self) -> None:
+        path = self.path_edit.text().strip()
+        if not path:
+            self.repo_info = None; self.detected.setText("Local repository is optional."); return
+        try:
+            self.repo_info = inspect_repository(path)
+            remote = self.repo_info.remote_url or "No origin remote"
+            self.detected.setText(
+                f"✓ Git repository\nRoot: {self.repo_info.root}\nBranch: {self.repo_info.branch or 'detached'}\n"
+                f"HEAD: {self.repo_info.head_sha[:12]}\nOrigin: {remote}"
+            )
+            self.path_edit.setText(str(self.repo_info.root))
+            if not self.name_edit.text().strip(): self.name_edit.setText(self.repo_info.root.name)
+        except GitError as exc:
+            self.repo_info = None
+            self.detected.setText(f"Not ready: {exc}")
+
+    def _accept(self) -> None:
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "Project", "Enter a project name."); return
+        if self.path_edit.text().strip() and self.repo_info is None:
+            try: self.repo_info = inspect_repository(self.path_edit.text().strip())
+            except GitError as exc:
+                QMessageBox.warning(self, "Repository", f"The selected folder is not a usable Git repository.\n\n{exc}"); return
+        self.accept()
+
+    def values(self) -> tuple[str, GitRepositoryInfo | None]:
+        return self.name_edit.text().strip(), self.repo_info
 ````
 
 ## `app/dialogs/shortcuts.py`
@@ -1331,8 +1843,8 @@ import logging
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QDragEnterEvent, QDropEvent, QFontDatabase, QKeySequence, QTextCursor, QTextDocument
+from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent, QFontDatabase, QKeySequence, QTextCursor, QTextDocument
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -1342,6 +1854,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSlider,
@@ -1354,13 +1867,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.constants import APP_NAME, DEFAULT_NOTE_TITLE, SHORTCUTS, VERSION
+from app.constants import APP_NAME, DEFAULT_NOTE_TITLE, GITHUB_APP_CLIENT_ID, GITHUB_APP_INSTALL_URL, SHORTCUTS, VERSION
 from app.database import Database, DatabaseError
 from app.dialogs.preferences import PreferencesDialog
+from app.dialogs.project import ProjectDialog
+from app.dialogs.github import GitHubConnectDialog, GitHubRepositoryDialog
 from app.dialogs.shortcuts import ShortcutsDialog
 from app.dialogs.trash import TrashDialog
-from app.models import Note
+from app.models import Note, Repository
 from app.paths import database_path
+from app.services.github_client import GitHubClient, GitHubError
+from app.services.local_git import GitError, current_head, default_branch, inspect_repository, recent_commits
+from app.services.repository_scanner import RepositoryScanner
 from app.services.txt_codec import (
     export_internal_plain_text,
     import_text_to_html,
@@ -1371,6 +1889,7 @@ from app.services.txt_codec import (
 )
 from app.settings import AppPreferences, SettingsManager
 from app.themes.theme_manager import THEME_OPTIONS, ThemeManager
+from app.widgets.context_panel import ContextPanel
 from app.widgets.diagram_view import DiagramView
 from app.widgets.note_editor import NoteEditor
 from app.widgets.sidebar import Sidebar
@@ -1391,14 +1910,18 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.theme_manager = theme_manager
         self.preferences = self.settings.preferences()
+        self.current_project_id: int | None = None
         self.current_note_id: int | None = None
+        self.github_client_id = str(self.settings.value("github/client_id", GITHUB_APP_CLIENT_ID) or GITHUB_APP_CLIENT_ID).strip()
+        self.github = GitHubClient(self.github_client_id) if self.github_client_id else None
+        self.scanner = RepositoryScanner(self.database, self.github)
         self._loading_note = False
         self._dirty = False
         self._diagram_dirty = False
         self._search_term = ""
         self._sort_mode = "updated"
 
-        self.setWindowTitle(f"{APP_NAME} — Developer Notes & Planning")
+        self.setWindowTitle(f"{APP_NAME} — Engineering Context")
         self.setMinimumSize(840, 560)
         self.resize(1220, 760)
         self.setAcceptDrops(True)
@@ -1409,6 +1932,9 @@ class MainWindow(QMainWindow):
         self.diagram_timer = QTimer(self)
         self.diagram_timer.setSingleShot(True)
         self.diagram_timer.timeout.connect(self.save_current_diagram)
+        self.repository_scan_timer = QTimer(self)
+        self.repository_scan_timer.setInterval(120_000)
+        self.repository_scan_timer.timeout.connect(self._auto_scan_current_project)
 
         self._build_ui()
         self._create_actions()
@@ -1418,6 +1944,8 @@ class MainWindow(QMainWindow):
         self._restore_window_state()
         self._apply_preferences(self.preferences, persist=False)
         self._load_initial_note()
+        self.repository_scan_timer.start()
+        QTimer.singleShot(800, self._auto_scan_current_project)
 
     def _build_ui(self) -> None:
         self.sidebar = Sidebar()
@@ -1428,9 +1956,11 @@ class MainWindow(QMainWindow):
         self.editor = NoteEditor()
         self.editor.setAcceptDrops(False)
         self.diagram = DiagramView()
+        self.context = ContextPanel()
         self.tabs = QTabWidget()
         self.tabs.addTab(self.editor, "Editor")
         self.tabs.addTab(self.diagram, "Diagram")
+        self.tabs.addTab(self.context, "Context")
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
@@ -1513,9 +2043,9 @@ class MainWindow(QMainWindow):
         self.auto_checkbox_action = QAction("Auto Checkbox", self)
         self.auto_checkbox_action.setCheckable(True)
         self.auto_checkbox_action.toggled.connect(self._set_auto_checkbox)
-        self.blank_line_enter_action = QAction("Blank Line After Enter", self)
+        self.blank_line_enter_action = QAction("Double Enter", self)
         self.blank_line_enter_action.setCheckable(True)
-        self.blank_line_enter_action.setToolTip("Leave one empty line whenever Enter is pressed")
+        self.blank_line_enter_action.setToolTip("When active, one Enter moves the cursor down by two lines")
         self.blank_line_enter_action.toggled.connect(self._set_blank_line_after_enter)
 
         self.bold_action = QAction("Bold", self)
@@ -1531,8 +2061,10 @@ class MainWindow(QMainWindow):
         self.strike_action.triggered.connect(self.editor.toggle_strikethrough)
         self.bullet_action = QAction("Bullet List", self)
         self.bullet_action.triggered.connect(self.editor.make_bullet_list)
-        self.numbered_action = QAction("Numbered List", self)
-        self.numbered_action.triggered.connect(self.editor.make_numbered_list)
+        self.numbered_action = QAction("List Mode", self)
+        self.numbered_action.setCheckable(True)
+        self.numbered_action.setToolTip("Write 1., 2., 3. ... as real text and continue numbering with Enter")
+        self.numbered_action.toggled.connect(self._set_numbered_list_mode)
 
         self.toggle_sidebar_action = QAction("Toggle Sidebar", self)
         self.toggle_sidebar_action.setShortcut(SHORTCUTS["Toggle Sidebar"])
@@ -1543,6 +2075,18 @@ class MainWindow(QMainWindow):
         self.diagram_tab_action = QAction("Diagram", self)
         self.diagram_tab_action.setShortcut(SHORTCUTS["Diagram Tab"])
         self.diagram_tab_action.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.context_tab_action = QAction("Context", self)
+        self.context_tab_action.setShortcut("Ctrl+3")
+        self.context_tab_action.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
+
+        self.new_project_action = QAction("New Project…", self)
+        self.new_project_action.triggered.connect(self.new_project)
+        self.scan_project_action = QAction("Scan Project", self)
+        self.scan_project_action.triggered.connect(self.scan_current_project)
+        self.connect_github_action = QAction("Connect GitHub…", self)
+        self.connect_github_action.triggered.connect(self.connect_github)
+        self.github_repositories_action = QAction("GitHub Repositories…", self)
+        self.github_repositories_action.triggered.connect(self.import_github_repository)
 
         self.preferences_action = QAction("Preferences…", self)
         self.preferences_action.triggered.connect(self.open_preferences)
@@ -1566,6 +2110,8 @@ class MainWindow(QMainWindow):
         notes_toolbar.addSeparator()
         notes_toolbar.addAction(self.checkbox_action)
         notes_toolbar.addAction(self.auto_checkbox_action)
+        notes_toolbar.addAction(self.numbered_action)
+        notes_toolbar.addAction(self.blank_line_enter_action)
         notes_toolbar.addSeparator()
         for action in [self.bold_action, self.italic_action, self.strike_action, self.bullet_action]:
             notes_toolbar.addAction(action)
@@ -1624,8 +2170,13 @@ class MainWindow(QMainWindow):
         self.diagram_workspace_button.setObjectName("workspaceButton")
         self.diagram_workspace_button.setCheckable(True)
         self.diagram_workspace_button.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.context_workspace_button = QPushButton("Context")
+        self.context_workspace_button.setObjectName("workspaceButton")
+        self.context_workspace_button.setCheckable(True)
+        self.context_workspace_button.clicked.connect(lambda: self.tabs.setCurrentIndex(2))
         self.workspace_layout.addWidget(self.editor_workspace_button)
         self.workspace_layout.addWidget(self.diagram_workspace_button)
+        self.workspace_layout.addWidget(self.context_workspace_button)
         self.workspace_layout.addStretch(1)
         theme_label = QLabel("Theme:")
         self.workspace_layout.addWidget(theme_label)
@@ -1729,6 +2280,13 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(self.exit_action)
 
+        project_menu = menu.addMenu("Project")
+        project_menu.addAction(self.new_project_action)
+        project_menu.addAction(self.scan_project_action)
+        project_menu.addSeparator()
+        project_menu.addAction(self.connect_github_action)
+        project_menu.addAction(self.github_repositories_action)
+
         edit_menu = menu.addMenu("Edit")
         for action in [self.undo_action, self.redo_action]:
             edit_menu.addAction(action)
@@ -1743,6 +2301,7 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.editor_tab_action)
         view_menu.addAction(self.diagram_tab_action)
+        view_menu.addAction(self.context_tab_action)
         theme_menu = view_menu.addMenu("Theme")
         self.theme_group = QActionGroup(self)
         self.theme_group.setExclusive(True)
@@ -1782,12 +2341,30 @@ class MainWindow(QMainWindow):
         self.sidebar.exportRequested.connect(self.export_note)
         self.sidebar.searchChanged.connect(self._on_search_changed)
         self.sidebar.sortChanged.connect(self._on_sort_changed)
+        self.sidebar.projectSelected.connect(self.select_project)
+        self.sidebar.newProjectRequested.connect(self.new_project)
+        self.sidebar.projectMenuRequested.connect(self.open_project_menu)
+        self.sidebar.scanRequested.connect(self.scan_current_project)
+        self.sidebar.newDecisionRequested.connect(self.new_decision)
+
+        self.context.documentKindChanged.connect(self._set_current_document_kind)
+        self.context.scanRequested.connect(self.scan_current_project)
+        self.context.markReviewedRequested.connect(self.mark_current_note_reviewed)
+        self.context.addRepositoryLinkRequested.connect(lambda: self.add_resource_link("repository"))
+        self.context.addDirectoryLinkRequested.connect(lambda: self.add_resource_link("directory"))
+        self.context.addFileLinkRequested.connect(lambda: self.add_resource_link("file"))
+        self.context.removeResourceRequested.connect(self.remove_resource_link)
+        self.context.addCommitRequested.connect(self.add_commit_reference)
+        self.context.addPullRequestRequested.connect(self.add_pull_request_reference)
+        self.context.removeExternalRequested.connect(self.remove_external_reference)
+        self.context.openResourceRequested.connect(self.open_linked_resource)
 
         self.title_edit.textChanged.connect(self._mark_content_dirty)
         self.editor.textChanged.connect(self._on_editor_changed)
         self.editor.cursorPositionChanged.connect(self._update_stats)
         self.editor.currentCharFormatChanged.connect(self._sync_font_controls)
         self.editor.taskStateChanged.connect(self._mark_content_dirty)
+        self.editor.numberedListModeChanged.connect(self._sync_numbered_list_action)
         self.diagram.diagramChanged.connect(self._on_diagram_changed)
         self.tabs.currentChanged.connect(self._sync_workspace_buttons)
         color_scheme_changed = getattr(QApplication.styleHints(), "colorSchemeChanged", None)
@@ -1795,48 +2372,96 @@ class MainWindow(QMainWindow):
             color_scheme_changed.connect(self._on_system_color_scheme_changed)
 
     def _load_initial_note(self) -> None:
-        notes = self.database.list_notes(sort=self._sort_mode)
+        projects = self.database.list_projects()
+        if not projects:
+            projects = [self.database.create_project("Personal")]
+        stored = self.settings.value("session/last_project_id", None)
+        try:
+            stored_id = int(stored) if stored is not None else None
+        except (TypeError, ValueError):
+            stored_id = None
+        ids = {project.id for project in projects}
+        self.current_project_id = stored_id if stored_id in ids else projects[0].id
+        self.sidebar.set_projects(projects, self.current_project_id)
+        self._load_project_documents(preferred_note_id=self.settings.last_note_id())
+
+    def _load_project_documents(self, preferred_note_id: int | None = None) -> None:
+        if self.current_project_id is None:
+            return
+        notes = self.database.list_notes(sort=self._sort_mode, project_id=self.current_project_id)
         if not notes:
-            note = self.database.create_note()
-            notes = self.database.list_notes(sort=self._sort_mode)
-            target = note.id
+            created = self.database.create_note(project_id=self.current_project_id)
+            notes = self.database.list_notes(sort=self._sort_mode, project_id=self.current_project_id)
+            target = created.id
         else:
-            last_id = self.settings.last_note_id() if self.preferences.start_with_last_note else None
             ids = {note.id for note in notes}
-            target = last_id if last_id in ids else notes[0].id
+            target = preferred_note_id if preferred_note_id in ids else notes[0].id
         self.sidebar.set_notes(notes, target)
         self.open_note(target)
+        self.refresh_project_context()
+
+    def refresh_projects(self, selected_id: int | None = None) -> None:
+        projects = self.database.list_projects()
+        self.sidebar.set_projects(projects, selected_id if selected_id is not None else self.current_project_id)
+
+    def select_project(self, project_id: int) -> None:
+        if project_id == self.current_project_id:
+            return
+        self.flush_pending_saves()
+        if self.database.get_project(project_id) is None:
+            return
+        self.current_project_id = project_id
+        self.current_note_id = None
+        self.settings.set_value("session/last_project_id", project_id)
+        self._search_term = ""
+        self.sidebar.search.blockSignals(True)
+        self.sidebar.search.clear()
+        self.sidebar.search.blockSignals(False)
+        self._load_project_documents()
+        QTimer.singleShot(250, self._auto_scan_current_project)
 
     def refresh_sidebar(self, selected_id: int | None = None) -> None:
-        notes = self.database.list_notes(self._search_term, self._sort_mode)
+        notes = self.database.list_notes(self._search_term, self._sort_mode, self.current_project_id)
         self.sidebar.set_notes(notes, selected_id if selected_id is not None else self.current_note_id)
 
     def open_note(self, note_id: int) -> None:
         if note_id == self.current_note_id and not self._loading_note:
+            self.refresh_context_panel()
             return
         self.flush_pending_saves()
         note = self.database.get_note(note_id)
         if note is None:
             self.refresh_sidebar()
             return
+        if note.project_id is not None and note.project_id != self.current_project_id:
+            self.current_project_id = note.project_id
+            self.refresh_projects(note.project_id)
         self._loading_note = True
         try:
             self.current_note_id = note.id
             self.title_edit.setText(note.title)
             self.editor.setHtml(note.content_html) if note.content_html else self.editor.clear()
             self.diagram.load_data(self.database.get_diagram(note.id))
+            self.context.set_kind(note.note_kind)
             self.settings.set_last_note_id(note.id)
             self._dirty = False
             self._diagram_dirty = False
             self.save_label.setText("Saved")
             self._update_stats()
+            self.refresh_context_panel()
         finally:
             self._loading_note = False
 
     def new_note(self) -> None:
+        self._create_document("note")
+
+    def new_decision(self) -> None:
+        self._create_document("decision")
+
+    def _create_document(self, kind: str) -> None:
         self.flush_pending_saves()
         try:
-            note = self.database.create_note()
+            note = self.database.create_note(project_id=self.current_project_id, note_kind=kind)
             self._search_term = ""
             self.sidebar.search.clear()
             self.refresh_sidebar(note.id)
@@ -1893,10 +2518,10 @@ class MainWindow(QMainWindow):
             self.database.soft_delete_note(note_id)
             if note_id == self.current_note_id:
                 self.current_note_id = None
-            notes = self.database.list_notes(self._search_term, self._sort_mode)
+            notes = self.database.list_notes(self._search_term, self._sort_mode, self.current_project_id)
             if not notes:
-                created = self.database.create_note()
-                notes = self.database.list_notes(self._search_term, self._sort_mode)
+                created = self.database.create_note(project_id=self.current_project_id)
+                notes = self.database.list_notes(self._search_term, self._sort_mode, self.current_project_id)
                 target = created.id
             else:
                 target = notes[0].id
@@ -2005,7 +2630,7 @@ class MainWindow(QMainWindow):
             parsed = parse_text(text)
             html = import_text_to_html(text)
             plain = parsed_to_internal_text(parsed)
-            note = self.database.create_note(path.stem or DEFAULT_NOTE_TITLE, html, plain)
+            note = self.database.create_note(path.stem or DEFAULT_NOTE_TITLE, html, plain, project_id=self.current_project_id)
             self._search_term = ""
             self.sidebar.search.clear()
             self.refresh_sidebar(note.id)
@@ -2057,6 +2682,479 @@ class MainWindow(QMainWindow):
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip(" .")
         return cleaned[:100] or "Untitled Note"
 
+    # --- Project / repository context -------------------------------------------------
+
+    def _current_repository(self) -> Repository | None:
+        if self.current_project_id is None:
+            return None
+        repos = self.database.list_repositories(self.current_project_id)
+        return repos[0] if repos else None
+
+    def refresh_project_context(self) -> None:
+        repo = self._current_repository()
+        self.context.set_repository(repo)
+        project = self.database.get_project(self.current_project_id) if self.current_project_id else None
+        if project:
+            self.setWindowTitle(f"{APP_NAME} — {project.name}")
+        self.refresh_context_panel()
+
+    def refresh_context_panel(self) -> None:
+        repo = self._current_repository()
+        self.context.set_repository(repo)
+        if self.current_note_id is None:
+            self.context.set_data([], [])
+            return
+        note = self.database.get_note(self.current_note_id)
+        if note:
+            self.context.set_kind(note.note_kind)
+        self.context.set_data(
+            self.database.list_resource_links(self.current_note_id),
+            self.database.list_external_refs(self.current_note_id),
+        )
+
+    def new_project(self) -> None:
+        self.flush_pending_saves()
+        dialog = ProjectDialog(self)
+        if not dialog.exec():
+            return
+        name, info = dialog.values()
+        try:
+            project = self.database.create_project(name)
+            if info is not None:
+                branch = default_branch(info.root) or info.branch
+                repo = self.database.add_repository(
+                    project.id,
+                    local_path=str(info.root),
+                    github_owner=info.github_owner,
+                    github_repo=info.github_repo,
+                    default_branch=branch,
+                )
+                self.database.update_repository(repo.id, last_seen_sha=info.head_sha)
+            self.current_project_id = project.id
+            self.settings.set_value("session/last_project_id", project.id)
+            self.refresh_projects(project.id)
+            self.current_note_id = None
+            self._load_project_documents()
+        except (DatabaseError, GitError, Exception) as exc:
+            logger.exception("Could not create project")
+            QMessageBox.critical(self, "Project", f"Could not create the project.\n\n{exc}")
+
+    def open_project_menu(self) -> None:
+        menu = QMenu(self)
+        new_action = menu.addAction("New Project…")
+        rename_action = menu.addAction("Rename Project…")
+        attach_action = menu.addAction("Attach Local Git Repository…")
+        menu.addSeparator()
+        connect_action = menu.addAction("Connect GitHub…")
+        repos_action = menu.addAction("Import from GitHub Repositories…")
+        scan_action = menu.addAction("Scan Linked Code")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete Project…")
+        button = self.sidebar.project_menu_button
+        chosen = menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
+        if chosen == new_action:
+            self.new_project()
+        elif chosen == rename_action:
+            self.rename_current_project()
+        elif chosen == attach_action:
+            self.attach_local_repository()
+        elif chosen == connect_action:
+            self.connect_github()
+        elif chosen == repos_action:
+            self.import_github_repository()
+        elif chosen == scan_action:
+            self.scan_current_project()
+        elif chosen == delete_action:
+            self.delete_current_project()
+
+    def rename_current_project(self) -> None:
+        if self.current_project_id is None:
+            return
+        project = self.database.get_project(self.current_project_id)
+        if not project:
+            return
+        value, ok = QInputDialog.getText(self, "Rename Project", "Name:", text=project.name)
+        if ok and value.strip():
+            self.database.rename_project(project.id, value)
+            self.refresh_projects(project.id)
+            self.refresh_project_context()
+
+    def delete_current_project(self) -> None:
+        if self.current_project_id is None:
+            return
+        project = self.database.get_project(self.current_project_id)
+        if not project:
+            return
+        answer = QMessageBox.question(
+            self, "Delete Project",
+            f'Delete project "{project.name}"? Its documents will be moved to another project; repository links for this project will be removed.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            old_id = project.id
+            self.database.delete_project(old_id)
+            projects = self.database.list_projects()
+            self.current_project_id = projects[0].id
+            self.current_note_id = None
+            self.settings.set_value("session/last_project_id", self.current_project_id)
+            self.refresh_projects(self.current_project_id)
+            self._load_project_documents()
+        except DatabaseError as exc:
+            self._show_database_error(exc)
+
+    def attach_local_repository(self) -> None:
+        if self.current_project_id is None:
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Attach Local Git Repository")
+        if not folder:
+            return
+        try:
+            info = inspect_repository(folder)
+            current = self._current_repository()
+            branch = default_branch(info.root) or info.branch
+            if current is None:
+                repo = self.database.add_repository(
+                    self.current_project_id, local_path=str(info.root), github_owner=info.github_owner,
+                    github_repo=info.github_repo, default_branch=branch,
+                )
+            else:
+                self.database.update_repository(
+                    current.id, local_path=str(info.root), github_owner=info.github_owner,
+                    github_repo=info.github_repo, default_branch=branch,
+                )
+                repo = self.database.get_repository(current.id)
+            if repo:
+                self.database.update_repository(repo.id, last_seen_sha=info.head_sha)
+            self.refresh_project_context()
+            self.statusBar().showMessage(f"Attached {info.root.name}", 3000)
+        except (GitError, DatabaseError, Exception) as exc:
+            QMessageBox.warning(self, "Repository", f"Could not attach this repository.\n\n{exc}")
+
+    def _configure_github_client(self) -> bool:
+        if not self.github_client_id:
+            client_id, ok = QInputDialog.getText(
+                self, "GitHub App Client ID",
+                "Paste the Client ID from your DevNest GitHub App.\n(Device Flow must be enabled.)",
+            )
+            if not ok or not client_id.strip():
+                return False
+            self.github_client_id = client_id.strip()
+            self.settings.set_value("github/client_id", self.github_client_id)
+            self.settings.sync()
+        self.github = GitHubClient(self.github_client_id)
+        self.scanner = RepositoryScanner(self.database, self.github)
+        return True
+
+    def connect_github(self) -> bool:
+        if not self._configure_github_client():
+            return False
+        assert self.github is not None
+        try:
+            if self.github.access_token():
+                user = self.github.authenticated_user()
+                answer = QMessageBox.question(
+                    self, "GitHub",
+                    f"Already connected as @{user.get('login', 'user')}. Reconnect?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if answer == QMessageBox.StandardButton.No:
+                    return True
+                self.github.disconnect()
+        except GitHubError:
+            self.github.disconnect()
+        dialog = GitHubConnectDialog(self.github, self)
+        if dialog.exec():
+            try:
+                user = self.github.authenticated_user()
+                self.statusBar().showMessage(f"GitHub connected: @{user.get('login', 'user')}", 5000)
+                return True
+            except GitHubError as exc:
+                QMessageBox.warning(self, "GitHub", str(exc))
+        return False
+
+    def import_github_repository(self) -> None:
+        if not self._configure_github_client():
+            return
+        assert self.github is not None
+        try:
+            if not self.github.access_token() and not self.connect_github():
+                return
+        except GitHubError:
+            if not self.connect_github():
+                return
+        dialog = GitHubRepositoryDialog(self.github, self, GITHUB_APP_INSTALL_URL)
+        if not dialog.exec():
+            return
+        selected = dialog.selected_repository()
+        if not selected:
+            return
+        full_name = str(selected.get("full_name", ""))
+        if "/" not in full_name:
+            return
+        owner, repo_name = full_name.split("/", 1)
+        try:
+            project = self.database.create_project(repo_name)
+            repo = self.database.add_repository(
+                project.id, provider="github", github_owner=owner, github_repo=repo_name,
+                github_installation_id=int(selected.get("_devnest_installation_id")) if selected.get("_devnest_installation_id") else None,
+                default_branch=str(selected.get("default_branch") or "main"),
+            )
+            head, branch = self.github.branch_head(owner, repo_name, repo.default_branch)
+            self.database.update_repository(repo.id, default_branch=branch, last_seen_sha=head)
+            self.current_project_id = project.id
+            self.current_note_id = None
+            self.settings.set_value("session/last_project_id", project.id)
+            self.refresh_projects(project.id)
+            self._load_project_documents()
+        except (DatabaseError, GitHubError, Exception) as exc:
+            logger.exception("Could not import GitHub repository")
+            QMessageBox.critical(self, "GitHub Repository", f"Could not create project from repository.\n\n{exc}")
+
+    def _current_repo_head(self, repo: Repository) -> str:
+        if repo.local_path and Path(repo.local_path).exists():
+            sha = current_head(repo.local_path)
+            if not repo.default_branch:
+                self.database.update_repository(repo.id, default_branch=default_branch(repo.local_path))
+            return sha
+        if repo.github_owner and repo.github_repo:
+            if self.github is None and not self._configure_github_client():
+                raise GitHubError("GitHub is not configured.")
+            assert self.github is not None
+            if not self.github.access_token():
+                raise GitHubError("GitHub is not connected.")
+            sha, branch = self.github.branch_head(repo.github_owner, repo.github_repo, repo.default_branch)
+            self.database.update_repository(repo.id, default_branch=branch)
+            return sha
+        raise GitError("No usable repository is attached to this project.")
+
+    @staticmethod
+    def _inside_repository(repo_root: Path, selected: Path) -> str:
+        root = repo_root.resolve()
+        target = selected.resolve()
+        try:
+            relative = target.relative_to(root)
+        except ValueError as exc:
+            raise GitError("Choose a file or folder inside the attached repository.") from exc
+        return relative.as_posix()
+
+    def add_resource_link(self, resource_type: str) -> None:
+        if self.current_note_id is None:
+            return
+        repo = self._current_repository()
+        if repo is None:
+            QMessageBox.information(self, "Code Link", "Attach a Git repository to this project first.")
+            return
+        try:
+            value = ""
+            if resource_type in {"directory", "file"}:
+                if repo.local_path and Path(repo.local_path).exists():
+                    root = Path(repo.local_path)
+                    if resource_type == "directory":
+                        selected = QFileDialog.getExistingDirectory(self, "Link Repository Folder", str(root))
+                    else:
+                        selected, _ = QFileDialog.getOpenFileName(self, "Link Repository File", str(root), "All Files (*)")
+                    if not selected:
+                        return
+                    value = self._inside_repository(root, Path(selected))
+                else:
+                    value, ok = QInputDialog.getText(
+                        self, f"Link {resource_type.title()}",
+                        f"Repository-relative {resource_type} path (example: src/auth/):",
+                    )
+                    if not ok or not value.strip():
+                        return
+                    value = value.strip().replace("\\", "/").strip("/")
+            head = self._current_repo_head(repo)
+            diagram_item_id = self.diagram.selected_item_id()
+            label = repo.github_full_name or (Path(repo.local_path).name if repo.local_path else "Repository")
+            if resource_type != "repository":
+                label = value
+            self.database.add_resource_link(
+                self.current_note_id, repo.id, resource_type, value, str(label), diagram_item_id, head,
+            )
+            self.refresh_context_panel()
+            self.refresh_sidebar(self.current_note_id)
+            node_text = " to selected diagram node" if diagram_item_id else ""
+            self.statusBar().showMessage(f"Linked {resource_type}{node_text} at {head[:10]}", 3500)
+        except (DatabaseError, GitError, GitHubError) as exc:
+            QMessageBox.warning(self, "Code Link", str(exc))
+
+    def remove_resource_link(self, link_id: int) -> None:
+        self.database.remove_resource_link(link_id)
+        self.refresh_context_panel()
+        self.refresh_sidebar(self.current_note_id)
+
+    def mark_current_note_reviewed(self) -> None:
+        if self.current_note_id is None:
+            return
+        repo = self._current_repository()
+        if repo is None:
+            return
+        try:
+            head = self._current_repo_head(repo)
+            self.database.mark_note_reviewed(self.current_note_id, repo.id, head)
+            self.refresh_context_panel()
+            self.refresh_sidebar(self.current_note_id)
+            self.statusBar().showMessage(f"Document reviewed at {head[:10]}", 3500)
+        except (DatabaseError, GitError, GitHubError) as exc:
+            QMessageBox.warning(self, "Review", str(exc))
+
+    def _auto_scan_current_project(self) -> None:
+        if self.current_project_id is None:
+            return
+        repos = self.database.list_repositories(self.current_project_id)
+        if not repos:
+            return
+        # Never interrupt the user for credentials during a background check.
+        if any(not repo.local_path and repo.github_owner for repo in repos):
+            if self.github is None:
+                return
+            try:
+                if not self.github.access_token():
+                    return
+            except GitHubError:
+                return
+        results = self.scanner.scan_project(self.current_project_id)
+        if any(result.changed_links for result in results):
+            self.refresh_sidebar(self.current_note_id)
+            self.refresh_context_panel()
+            changed = sum(result.changed_links for result in results)
+            self.statusBar().showMessage(f"{changed} document code link(s) need review", 5000)
+        for result in results:
+            if result.error:
+                logger.debug("Background repository scan skipped: %s", result.error)
+
+    def scan_current_project(self) -> None:
+        if self.current_project_id is None:
+            return
+        # A remote-only repository needs GitHub auth. Local repositories do not.
+        repos = self.database.list_repositories(self.current_project_id)
+        if not repos:
+            QMessageBox.information(self, "Scan", "Attach a repository to this project first.")
+            return
+        if any(not repo.local_path and repo.github_owner for repo in repos):
+            if self.github is None and not self._configure_github_client():
+                return
+            assert self.github is not None
+            try:
+                connected = bool(self.github.access_token())
+            except GitHubError:
+                connected = False
+            if not connected and not self.connect_github():
+                return
+            self.scanner = RepositoryScanner(self.database, self.github)
+        results = self.scanner.scan_project(self.current_project_id)
+        errors = [result.error for result in results if result.error]
+        changed = sum(result.changed_links for result in results)
+        checked = sum(result.checked_links for result in results)
+        self.refresh_sidebar(self.current_note_id)
+        self.refresh_project_context()
+        if errors:
+            QMessageBox.warning(self, "Repository Scan", "\n\n".join(str(error) for error in errors))
+        else:
+            self.statusBar().showMessage(f"Scan complete: {checked} links checked, {changed} need review", 5000)
+
+    def _set_current_document_kind(self, kind: str) -> None:
+        if self._loading_note or self.current_note_id is None:
+            return
+        try:
+            self.database.set_note_kind(self.current_note_id, kind)
+            self.refresh_sidebar(self.current_note_id)
+        except DatabaseError as exc:
+            self._show_database_error(exc)
+
+    def add_commit_reference(self) -> None:
+        if self.current_note_id is None:
+            return
+        repo = self._current_repository()
+        if repo is None:
+            QMessageBox.information(self, "Commit", "Attach a repository first.")
+            return
+        try:
+            commits: list[tuple[str, str, str | None]] = []
+            if repo.local_path and Path(repo.local_path).exists():
+                for item in recent_commits(repo.local_path, 60):
+                    sha = item["sha"]
+                    title = item["title"]
+                    url = f"https://github.com/{repo.github_full_name}/commit/{sha}" if repo.github_full_name else None
+                    commits.append((sha, title, url))
+            elif repo.github_owner and repo.github_repo:
+                if self.github is None or not self.github.access_token():
+                    if not self.connect_github():
+                        return
+                assert self.github is not None
+                for item in self.github.list_commits(repo.github_owner, repo.github_repo, 60):
+                    sha = str(item.get("sha", ""))
+                    commit_data = item.get("commit") if isinstance(item.get("commit"), dict) else {}
+                    title = str(commit_data.get("message", "")).splitlines()[0]
+                    commits.append((sha, title, str(item.get("html_url")) if item.get("html_url") else None))
+            if not commits:
+                QMessageBox.information(self, "Commit", "No commits found.")
+                return
+            labels = [f"{sha[:10]}  {title}" for sha, title, _url in commits]
+            selected, ok = QInputDialog.getItem(self, "Link Commit", "Commit:", labels, 0, False)
+            if not ok:
+                return
+            index = labels.index(selected)
+            sha, title, url = commits[index]
+            self.database.add_external_ref(self.current_note_id, repo.id, "commit", sha, title, url)
+            self.refresh_context_panel()
+        except (GitError, GitHubError, DatabaseError) as exc:
+            QMessageBox.warning(self, "Commit", str(exc))
+
+    def add_pull_request_reference(self) -> None:
+        if self.current_note_id is None:
+            return
+        repo = self._current_repository()
+        if repo is None or not repo.github_owner or not repo.github_repo:
+            QMessageBox.information(self, "Pull Request", "This project must be linked to a GitHub repository first.")
+            return
+        if self.github is None or not self.github.access_token():
+            if not self.connect_github():
+                return
+        assert self.github is not None
+        try:
+            pulls = self.github.list_pull_requests(repo.github_owner, repo.github_repo, "all", 60)
+            if not pulls:
+                QMessageBox.information(self, "Pull Request", "No pull requests found.")
+                return
+            labels = [f"#{item.get('number')}  {item.get('title', '')}" for item in pulls]
+            selected, ok = QInputDialog.getItem(self, "Link Pull Request", "Pull request:", labels, 0, False)
+            if not ok:
+                return
+            item = pulls[labels.index(selected)]
+            number = str(item.get("number"))
+            self.database.add_external_ref(
+                self.current_note_id, repo.id, "pull_request", f"#{number}",
+                str(item.get("title", "")), str(item.get("html_url")) if item.get("html_url") else None,
+            )
+            self.refresh_context_panel()
+        except (GitHubError, DatabaseError) as exc:
+            QMessageBox.warning(self, "Pull Request", str(exc))
+
+    def remove_external_reference(self, ref_id: int) -> None:
+        self.database.remove_external_ref(ref_id)
+        self.refresh_context_panel()
+
+    def open_linked_resource(self, relative_path: str) -> None:
+        repo = self._current_repository()
+        if repo is None:
+            return
+        if repo.local_path:
+            path = Path(repo.local_path) / relative_path
+            if path.exists():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+                return
+        if repo.github_full_name:
+            branch = repo.default_branch or "HEAD"
+            kind = "tree" if relative_path and not Path(relative_path).suffix else "blob"
+            url = f"https://github.com/{repo.github_full_name}/{kind}/{branch}/{relative_path}"
+            QDesktopServices.openUrl(QUrl(url))
+
     def open_preferences(self) -> None:
         dialog = PreferencesDialog(self.preferences, self)
         if dialog.exec():
@@ -2096,6 +3194,15 @@ class MainWindow(QMainWindow):
         self.preferences.blank_line_after_enter = enabled
         self.settings.set_value("editor/blank_line_after_enter", enabled)
 
+    def _set_numbered_list_mode(self, enabled: bool) -> None:
+        self.editor.set_numbered_list_mode(enabled)
+        self.editor.setFocus()
+
+    def _sync_numbered_list_action(self, enabled: bool) -> None:
+        self.numbered_action.blockSignals(True)
+        self.numbered_action.setChecked(enabled)
+        self.numbered_action.blockSignals(False)
+
     def set_theme(self, theme: str, persist: bool = True) -> None:
         self.theme_manager.apply(theme)
         resolved_theme = self.theme_manager.current_theme
@@ -2131,6 +3238,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, "editor_workspace_button"):
             self.editor_workspace_button.setChecked(index == 0)
             self.diagram_workspace_button.setChecked(index == 1)
+            self.context_workspace_button.setChecked(index == 2)
+        if index == 2:
+            self.refresh_context_panel()
 
     def _on_system_color_scheme_changed(self, _scheme) -> None:
         if self.preferences.theme == "system":
@@ -2144,8 +3254,8 @@ class MainWindow(QMainWindow):
             self,
             f"About {APP_NAME}",
             f"<b>{APP_NAME} {VERSION}</b><br><br>"
-            "Offline developer notes, tasks, planning, and lightweight diagrams.<br><br>"
-            "No account, telemetry, or cloud connection is required.<br><br>"
+            "Local-first engineering context for notes, decisions, diagrams and code links.<br><br>"
+            "No DevNest account or cloud storage is required. GitHub connection is optional and read-only.<br><br>"
             f"Database: {database_path()}",
         )
 
@@ -2187,6 +3297,8 @@ class MainWindow(QMainWindow):
         self.settings.set_value("window/splitter", self.splitter.saveState())
         self.settings.set_value("window/tab_index", self.tabs.currentIndex())
         self.settings.set_last_note_id(self.current_note_id)
+        if self.current_project_id is not None:
+            self.settings.set_value("session/last_project_id", self.current_project_id)
         self.settings.sync()
         self.database.close()
         event.accept()
@@ -2213,6 +3325,9 @@ class Note:
     created_at: str
     updated_at: str
     is_deleted: bool
+    uuid: str = ""
+    project_id: int | None = None
+    note_kind: str = "note"
 
 
 @dataclass(slots=True)
@@ -2223,6 +3338,71 @@ class NoteSummary:
     created_at: str
     updated_at: str
     is_deleted: bool
+    project_id: int | None = None
+    note_kind: str = "note"
+    needs_review: bool = False
+
+
+@dataclass(slots=True)
+class Project:
+    id: int
+    uuid: str
+    name: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class Repository:
+    id: int
+    project_id: int
+    uuid: str
+    provider: str
+    local_path: str | None
+    github_owner: str | None
+    github_repo: str | None
+    github_installation_id: int | None
+    default_branch: str | None
+    last_seen_sha: str | None
+    last_scanned_at: str | None
+    created_at: str
+    updated_at: str
+
+    @property
+    def github_full_name(self) -> str | None:
+        if self.github_owner and self.github_repo:
+            return f"{self.github_owner}/{self.github_repo}"
+        return None
+
+
+@dataclass(slots=True)
+class ResourceLink:
+    id: int
+    note_id: int
+    repository_id: int
+    resource_type: str
+    resource_value: str
+    display_label: str
+    diagram_item_id: str | None
+    baseline_sha: str | None
+    last_checked_sha: str | None
+    needs_review: bool
+    change_count: int
+    last_changed_at: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(slots=True)
+class ExternalRef:
+    id: int
+    note_id: int
+    repository_id: int
+    ref_type: str
+    ref_value: str
+    title: str
+    url: str | None
+    created_at: str
 ````
 
 ## `app/paths.py`
@@ -2263,6 +3443,332 @@ def resource_path(relative: str) -> Path:
 
 ````
 
+## `app/services/github_client.py`
+
+````python
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from app.services.secret_store import clear_github_credentials, load_github_credentials, save_github_credentials
+
+
+API_VERSION = "2026-03-10"
+
+
+class GitHubError(RuntimeError):
+    pass
+
+
+class GitHubAuthorizationPending(GitHubError):
+    pass
+
+
+class GitHubSlowDown(GitHubError):
+    pass
+
+
+@dataclass(slots=True)
+class DeviceCode:
+    device_code: str
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+
+
+class GitHubClient:
+    def __init__(self, client_id: str, *, timeout: int = 20) -> None:
+        self.client_id = client_id.strip()
+        self.timeout = timeout
+
+    @staticmethod
+    def _expiry_iso(seconds: object) -> str | None:
+        try: value = int(seconds)
+        except (TypeError, ValueError): return None
+        return (datetime.now(timezone.utc) + timedelta(seconds=max(0, value - 60))).isoformat(timespec="seconds")
+
+    @staticmethod
+    def _is_expired(value: object) -> bool:
+        if not value: return False
+        try: return datetime.fromisoformat(str(value)) <= datetime.now(timezone.utc)
+        except ValueError: return True
+
+    def _request(self, url: str, *, method: str = "GET", token: str | None = None,
+                 data: dict[str, object] | None = None, form: bool = False) -> Any:
+        body = None
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "DevNest-Desktop/2"}
+        if url.startswith("https://github.com/login/"):
+            headers["Accept"] = "application/json"
+        if "api.github.com" in url:
+            headers["X-GitHub-Api-Version"] = API_VERSION
+        if token: headers["Authorization"] = f"Bearer {token}"
+        if data is not None:
+            if form:
+                body = urllib.parse.urlencode({k: str(v) for k, v in data.items() if v is not None}).encode("utf-8")
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            else:
+                body = json.dumps(data).encode("utf-8"); headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try: message = json.loads(raw.decode("utf-8")).get("message", exc.reason)
+            except Exception: message = exc.reason
+            raise GitHubError(f"GitHub HTTP {exc.code}: {message}") from exc
+        except urllib.error.URLError as exc:
+            raise GitHubError(f"Could not reach GitHub: {exc.reason}") from exc
+        if not raw: return {}
+        try: return json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError as exc: raise GitHubError("GitHub returned an invalid response.") from exc
+
+    def start_device_flow(self) -> DeviceCode:
+        if not self.client_id: raise GitHubError("GitHub App Client ID is not configured.")
+        data = self._request("https://github.com/login/device/code", method="POST", data={"client_id": self.client_id}, form=True)
+        return DeviceCode(str(data["device_code"]), str(data["user_code"]), str(data["verification_uri"]), int(data["expires_in"]), int(data.get("interval", 5)))
+
+    def poll_device_flow(self, device_code: str) -> dict[str, object]:
+        data = self._request("https://github.com/login/oauth/access_token", method="POST", data={
+            "client_id": self.client_id, "device_code": device_code,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+        }, form=True)
+        error = data.get("error") if isinstance(data, dict) else None
+        if error == "authorization_pending": raise GitHubAuthorizationPending("Authorization pending")
+        if error == "slow_down": raise GitHubSlowDown("GitHub requested slower polling")
+        if error: raise GitHubError(str(data.get("error_description") or error))
+        credentials = {
+            "access_token": data.get("access_token"), "access_expires_at": self._expiry_iso(data.get("expires_in")),
+            "refresh_token": data.get("refresh_token"), "refresh_expires_at": self._expiry_iso(data.get("refresh_token_expires_in")),
+            "token_type": data.get("token_type", "bearer"), "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        save_github_credentials(credentials)
+        return credentials
+
+    def credentials(self) -> dict[str, object] | None:
+        return load_github_credentials()
+
+    def access_token(self) -> str | None:
+        creds = load_github_credentials()
+        if not creds or not creds.get("access_token"): return None
+        if not self._is_expired(creds.get("access_expires_at")):
+            return str(creds["access_token"])
+        refresh = creds.get("refresh_token")
+        if not refresh or self._is_expired(creds.get("refresh_expires_at")):
+            clear_github_credentials(); return None
+        data = self._request("https://github.com/login/oauth/access_token", method="POST", data={
+            "client_id": self.client_id, "grant_type": "refresh_token", "refresh_token": refresh,
+        }, form=True)
+        if data.get("error"):
+            clear_github_credentials(); raise GitHubError(str(data.get("error_description") or data["error"]))
+        updated = {
+            "access_token": data.get("access_token"), "access_expires_at": self._expiry_iso(data.get("expires_in")),
+            "refresh_token": data.get("refresh_token", refresh), "refresh_expires_at": self._expiry_iso(data.get("refresh_token_expires_in")),
+            "token_type": data.get("token_type", "bearer"), "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+        save_github_credentials(updated)
+        return str(updated["access_token"])
+
+    def disconnect(self) -> None:
+        clear_github_credentials()
+
+    def authenticated_user(self) -> dict[str, object]:
+        token = self.access_token()
+        if not token: raise GitHubError("GitHub is not connected.")
+        return self._request("https://api.github.com/user", token=token)
+
+    def list_repositories(self, limit: int = 200) -> list[dict[str, object]]:
+        """Return repositories from installations of this GitHub App only.
+
+        A GitHub App user token is intentionally narrower than a general OAuth
+        token. Enumerating installations first mirrors GitHub's permission model
+        and means the picker only shows repositories on which DevNest is actually
+        installed.
+        """
+        token = self.access_token()
+        if not token: raise GitHubError("GitHub is not connected.")
+        installations_data = self._request("https://api.github.com/user/installations?per_page=100", token=token)
+        installations = installations_data.get("installations", []) if isinstance(installations_data, dict) else []
+        result: list[dict[str, object]] = []
+        seen: set[int] = set()
+        for installation in installations:
+            if not isinstance(installation, dict) or not installation.get("id"):
+                continue
+            installation_id = int(installation["id"])
+            page = 1
+            while len(result) < limit:
+                data = self._request(
+                    f"https://api.github.com/user/installations/{installation_id}/repositories?per_page=100&page={page}",
+                    token=token,
+                )
+                repos = data.get("repositories", []) if isinstance(data, dict) else []
+                if not isinstance(repos, list): break
+                for repo in repos:
+                    if not isinstance(repo, dict): continue
+                    repo_id = int(repo.get("id", 0) or 0)
+                    if repo_id and repo_id in seen: continue
+                    if repo_id: seen.add(repo_id)
+                    copy = dict(repo); copy["_devnest_installation_id"] = installation_id
+                    result.append(copy)
+                    if len(result) >= limit: break
+                if len(repos) < 100 or len(result) >= limit: break
+                page += 1
+        result.sort(key=lambda item: str(item.get("full_name", "")).casefold())
+        return result[:limit]
+
+    def repository(self, owner: str, repo: str) -> dict[str, object]:
+        return self._request(f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}", token=self.access_token())
+
+    def branch_head(self, owner: str, repo: str, branch: str | None = None) -> tuple[str, str]:
+        info = self.repository(owner, repo)
+        branch_name = branch or str(info.get("default_branch") or "main")
+        data = self._request(f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/commits/{urllib.parse.quote(branch_name, safe='')}", token=self.access_token())
+        return str(data["sha"]), branch_name
+
+    def compare_commits(self, owner: str, repo: str, base: str, head: str) -> tuple[list[str], int]:
+        data = self._request(f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/compare/{urllib.parse.quote(base, safe='')}...{urllib.parse.quote(head, safe='')}", token=self.access_token())
+        files = [str(item.get("filename")) for item in data.get("files", []) if isinstance(item, dict) and item.get("filename")]
+        return files, int(data.get("total_commits", len(data.get("commits", []))))
+
+
+    def list_commits(self, owner: str, repo: str, limit: int = 50) -> list[dict[str, object]]:
+        data = self._request(f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/commits?per_page={max(1,min(limit,100))}", token=self.access_token())
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+    def list_pull_requests(self, owner: str, repo: str, state: str = "all", limit: int = 50) -> list[dict[str, object]]:
+        data = self._request(f"https://api.github.com/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}/pulls?state={state}&per_page={max(1,min(limit,100))}&sort=updated&direction=desc", token=self.access_token())
+        return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+````
+
+## `app/services/local_git.py`
+
+````python
+from __future__ import annotations
+
+import re
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+
+
+class GitError(RuntimeError):
+    pass
+
+
+@dataclass(slots=True)
+class GitRepositoryInfo:
+    root: Path
+    head_sha: str
+    branch: str | None
+    remote_url: str | None
+    github_owner: str | None
+    github_repo: str | None
+
+
+def _run_git(path: Path | str, *args: str) -> str:
+    working = Path(path)
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(working), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except FileNotFoundError as exc:
+        raise GitError("Git was not found. Install Git for Windows and restart DevNest.") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise GitError("Git command timed out.") from exc
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "Unknown git error"
+        raise GitError(message)
+    return completed.stdout.strip()
+
+
+def parse_github_remote(url: str | None) -> tuple[str | None, str | None]:
+    if not url:
+        return None, None
+    value = url.strip()
+    patterns = [
+        r"^(?:https?://|git://)github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
+        r"^git@github\.com:([^/]+)/(.+?)(?:\.git)?$",
+        r"^ssh://git@github\.com/([^/]+)/(.+?)(?:\.git)?$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, value, flags=re.IGNORECASE)
+        if match:
+            return match.group(1), match.group(2)
+    return None, None
+
+
+def inspect_repository(path: Path | str) -> GitRepositoryInfo:
+    path = Path(path).expanduser().resolve()
+    root_text = _run_git(path, "rev-parse", "--show-toplevel")
+    root = Path(root_text).resolve()
+    head = _run_git(root, "rev-parse", "HEAD")
+    branch = _run_git(root, "branch", "--show-current") or None
+    try:
+        remote = _run_git(root, "remote", "get-url", "origin") or None
+    except GitError:
+        remote = None
+    owner, repo = parse_github_remote(remote)
+    return GitRepositoryInfo(root, head, branch, remote, owner, repo)
+
+
+def current_head(path: Path | str) -> str:
+    return _run_git(path, "rev-parse", "HEAD")
+
+
+def default_branch(path: Path | str) -> str | None:
+    try:
+        symbolic = _run_git(path, "symbolic-ref", "refs/remotes/origin/HEAD")
+        return symbolic.rsplit("/", 1)[-1] if symbolic else None
+    except GitError:
+        try:
+            return _run_git(path, "branch", "--show-current") or None
+        except GitError:
+            return None
+
+
+def changed_files(path: Path | str, base_sha: str, head_sha: str) -> list[str]:
+    if base_sha == head_sha:
+        return []
+    output = _run_git(path, "diff", "--name-only", "--no-renames", f"{base_sha}..{head_sha}")
+    return [line.replace("\\", "/").strip("/") for line in output.splitlines() if line.strip()]
+
+
+def commit_count(path: Path | str, base_sha: str, head_sha: str) -> int:
+    if base_sha == head_sha:
+        return 0
+    value = _run_git(path, "rev-list", "--count", f"{base_sha}..{head_sha}")
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
+def recent_commits(path: Path | str, limit: int = 50) -> list[dict[str, str]]:
+    fmt = "%H%x1f%h%x1f%s%x1f%an%x1f%aI%x1e"
+    output = _run_git(path, "log", f"--max-count={max(1, min(limit, 200))}", f"--pretty=format:{fmt}")
+    result: list[dict[str, str]] = []
+    for record in output.split("\x1e"):
+        parts = record.strip().split("\x1f")
+        if len(parts) == 5:
+            result.append({"sha": parts[0], "short_sha": parts[1], "title": parts[2], "author": parts[3], "date": parts[4]})
+    return result
+````
+
 ## `app/services/logging_setup.py`
 
 ````python
@@ -2287,6 +3793,218 @@ def configure_logging() -> None:
     )
     handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
     root.addHandler(handler)
+````
+
+## `app/services/repository_scanner.py`
+
+````python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from app.database import Database, utc_now_iso
+from app.models import Repository, ResourceLink
+from app.services.github_client import GitHubClient, GitHubError
+from app.services.local_git import GitError, changed_files as local_changed_files, commit_count as local_commit_count, current_head
+
+
+@dataclass(slots=True)
+class ScanResult:
+    repository_id: int
+    head_sha: str | None
+    changed_links: int
+    checked_links: int
+    changed_files: int
+    commit_count: int
+    source: str
+    error: str | None = None
+
+
+def _normalize(path: str) -> str:
+    return path.replace("\\", "/").strip("/")
+
+
+def resource_is_affected(link: ResourceLink, files: list[str]) -> bool:
+    if not files: return False
+    if link.resource_type == "repository": return True
+    value = _normalize(link.resource_value)
+    normalized = [_normalize(item) for item in files]
+    if link.resource_type == "directory" and not value:
+        return True
+    if link.resource_type == "file": return value in normalized
+    prefix = value.rstrip("/") + "/"
+    return any(item == value or item.startswith(prefix) for item in normalized)
+
+
+class RepositoryScanner:
+    def __init__(self, database: Database, github: GitHubClient | None = None) -> None:
+        self.database = database
+        self.github = github
+
+    def _head(self, repo: Repository) -> tuple[str, str]:
+        if repo.local_path and Path(repo.local_path).exists():
+            return current_head(repo.local_path), "local"
+        if repo.github_owner and repo.github_repo and self.github:
+            sha, branch = self.github.branch_head(repo.github_owner, repo.github_repo, repo.default_branch)
+            if branch != repo.default_branch: self.database.update_repository(repo.id, default_branch=branch)
+            return sha, "github"
+        raise GitError("Repository has neither an available local checkout nor a usable GitHub connection.")
+
+    def _compare(self, repo: Repository, base: str, head: str, source: str) -> tuple[list[str], int]:
+        if base == head: return [], 0
+        if source == "local" and repo.local_path:
+            return local_changed_files(repo.local_path, base, head), local_commit_count(repo.local_path, base, head)
+        if repo.github_owner and repo.github_repo and self.github:
+            return self.github.compare_commits(repo.github_owner, repo.github_repo, base, head)
+        raise GitError("Cannot compare repository revisions.")
+
+    def scan_repository(self, repository_id: int) -> ScanResult:
+        repo = self.database.get_repository(repository_id)
+        if repo is None: return ScanResult(repository_id, None, 0, 0, 0, 0, "none", "Repository not found")
+        try:
+            head, source = self._head(repo)
+            if repo.last_seen_sha == head:
+                checked = int(self.database.connection.execute(
+                    "SELECT COUNT(*) FROM resource_links WHERE repository_id=?", (repo.id,)
+                ).fetchone()[0])
+                self.database.update_repository(repo.id, last_scanned_at=utc_now_iso())
+                return ScanResult(repo.id, head, 0, checked, 0, 0, source)
+            links = self.database.connection.execute("SELECT DISTINCT note_id FROM resource_links WHERE repository_id=?", (repo.id,)).fetchall()
+            all_resource_links: list[ResourceLink] = []
+            for row in links: all_resource_links.extend(self.database.list_resource_links(int(row["note_id"])))
+            all_resource_links = [link for link in all_resource_links if link.repository_id == repo.id]
+            comparison_cache: dict[str, tuple[list[str], int]] = {}
+            changed_links = 0; max_files: set[str] = set(); max_commits = 0
+            for link in all_resource_links:
+                base = link.baseline_sha
+                if not base:
+                    self.database.mark_note_reviewed(link.note_id, repo.id, head)
+                    continue
+                if base not in comparison_cache:
+                    comparison_cache[base] = self._compare(repo, base, head, source)
+                files, commits = comparison_cache[base]
+                max_files.update(files); max_commits = max(max_commits, commits)
+                if resource_is_affected(link, files):
+                    self.database.mark_link_changed(link.id, head, commits)
+                    changed_links += 1
+                else:
+                    self.database.mark_link_checked(link.id, head)
+            previous = repo.last_seen_sha
+            if previous != head and max_files:
+                self.database.record_repository_change(repo.id, previous, head, sorted(max_files), max_commits)
+            self.database.update_repository(repo.id, last_seen_sha=head, last_scanned_at=utc_now_iso())
+            return ScanResult(repo.id, head, changed_links, len(all_resource_links), len(max_files), max_commits, source)
+        except (GitError, GitHubError) as exc:
+            return ScanResult(repo.id, None, 0, 0, 0, 0, "error", str(exc))
+
+    def scan_project(self, project_id: int) -> list[ScanResult]:
+        return [self.scan_repository(repo.id) for repo in self.database.list_repositories(project_id)]
+````
+
+## `app/services/secret_store.py`
+
+````python
+from __future__ import annotations
+
+import ctypes
+import json
+import os
+from ctypes import wintypes
+from pathlib import Path
+
+
+class SecretStoreError(RuntimeError):
+    pass
+
+
+_TARGET = "DevNest:GitHub"
+_CRED_TYPE_GENERIC = 1
+_CRED_PERSIST_LOCAL_MACHINE = 2
+_ERROR_NOT_FOUND = 1168
+
+
+if os.name == "nt":
+    class FILETIME(ctypes.Structure):
+        _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
+
+    class CREDENTIALW(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD), ("Type", wintypes.DWORD), ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR), ("LastWritten", FILETIME), ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)), ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD), ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR), ("UserName", wintypes.LPWSTR),
+        ]
+
+    _advapi32 = ctypes.WinDLL("Advapi32.dll", use_last_error=True)
+    _CredWriteW = _advapi32.CredWriteW
+    _CredWriteW.argtypes = [ctypes.POINTER(CREDENTIALW), wintypes.DWORD]
+    _CredWriteW.restype = wintypes.BOOL
+    _CredReadW = _advapi32.CredReadW
+    _CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.POINTER(CREDENTIALW))]
+    _CredReadW.restype = wintypes.BOOL
+    _CredDeleteW = _advapi32.CredDeleteW
+    _CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+    _CredDeleteW.restype = wintypes.BOOL
+    _CredFree = _advapi32.CredFree
+    _CredFree.argtypes = [ctypes.c_void_p]
+
+
+def _fallback_file() -> Path:
+    # Development-only fallback for non-Windows platforms. Production Windows
+    # builds use Credential Manager and never write tokens here.
+    return Path.home() / ".devnest_github_credentials.json"
+
+
+def save_github_credentials(data: dict[str, object]) -> None:
+    payload = json.dumps(data, separators=(",", ":")).encode("utf-8")
+    if os.name != "nt":
+        path = _fallback_file(); path.write_bytes(payload)
+        try: path.chmod(0o600)
+        except OSError: pass
+        return
+    blob = (ctypes.c_ubyte * len(payload)).from_buffer_copy(payload)
+    credential = CREDENTIALW()
+    credential.Type = _CRED_TYPE_GENERIC
+    credential.TargetName = _TARGET
+    credential.CredentialBlobSize = len(payload)
+    credential.CredentialBlob = ctypes.cast(blob, ctypes.POINTER(ctypes.c_ubyte))
+    credential.Persist = _CRED_PERSIST_LOCAL_MACHINE
+    credential.UserName = "github"
+    if not _CredWriteW(ctypes.byref(credential), 0):
+        raise SecretStoreError(f"Windows Credential Manager error: {ctypes.get_last_error()}")
+
+
+def load_github_credentials() -> dict[str, object] | None:
+    if os.name != "nt":
+        path = _fallback_file()
+        if not path.exists(): return None
+        try: return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError): return None
+    pointer = ctypes.POINTER(CREDENTIALW)()
+    if not _CredReadW(_TARGET, _CRED_TYPE_GENERIC, 0, ctypes.byref(pointer)):
+        error = ctypes.get_last_error()
+        if error == _ERROR_NOT_FOUND: return None
+        raise SecretStoreError(f"Windows Credential Manager error: {error}")
+    try:
+        credential = pointer.contents
+        raw = ctypes.string_at(credential.CredentialBlob, credential.CredentialBlobSize)
+        decoded = json.loads(raw.decode("utf-8"))
+        return decoded if isinstance(decoded, dict) else None
+    finally:
+        _CredFree(pointer)
+
+
+def clear_github_credentials() -> None:
+    if os.name != "nt":
+        try: _fallback_file().unlink()
+        except FileNotFoundError: pass
+        return
+    if not _CredDeleteW(_TARGET, _CRED_TYPE_GENERIC, 0):
+        error = ctypes.get_last_error()
+        if error != _ERROR_NOT_FOUND:
+            raise SecretStoreError(f"Windows Credential Manager error: {error}")
 ````
 
 ## `app/services/txt_codec.py`
@@ -2755,12 +4473,12 @@ QToolButton {{ border: 0; border-radius: 5px; padding: 5px 7px; background: tran
 QToolButton:hover {{ background: {spec.hover}; }}
 QToolButton:checked {{ background: {spec.selected}; }}
 QToolBar QToolButton#qt_toolbar_ext_button {{ width: 0px; height: 0px; padding: 0; margin: 0; border: 0; }}
-QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QListWidget, QTableWidget {{
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QListWidget, QTreeWidget, QTableWidget {{
     background: {spec.editor}; color: {spec.text}; border: 1px solid {spec.border}; border-radius: 6px; padding: 5px;
     selection-background-color: {spec.selected}; selection-color: {spec.text};
 }}
 QComboBox QAbstractItemView {{ background: {spec.surface}; color: {spec.text}; border: 1px solid {spec.border}; selection-background-color: {spec.selected}; }}
-QListWidget {{ background: {spec.surface}; }}
+QListWidget, QTreeWidget {{ background: {spec.surface}; }}
 QListWidget::item {{ border-radius: 6px; padding: 3px; margin: 2px 0; }}
 QListWidget::item:selected {{ background: {spec.selected}; color: {spec.text}; }}
 QPushButton {{ background: {spec.surface}; color: {spec.text}; border: 1px solid {spec.border}; border-radius: 6px; padding: 6px 10px; }}
@@ -2878,6 +4596,117 @@ class ThemeManager:
 
 ````python
 
+````
+
+## `app/widgets/context_panel.py`
+
+````python
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QComboBox, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
+    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+)
+
+from app.models import ExternalRef, Repository, ResourceLink
+
+
+class ContextPanel(QWidget):
+    documentKindChanged = Signal(str)
+    scanRequested = Signal()
+    markReviewedRequested = Signal()
+    addRepositoryLinkRequested = Signal()
+    addDirectoryLinkRequested = Signal()
+    addFileLinkRequested = Signal()
+    removeResourceRequested = Signal(int)
+    addCommitRequested = Signal()
+    addPullRequestRequested = Signal()
+    removeExternalRequested = Signal(int)
+    openResourceRequested = Signal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        root = QVBoxLayout(self); root.setContentsMargins(14, 12, 14, 12); root.setSpacing(10)
+        header = QHBoxLayout(); title = QLabel("Engineering Context"); title.setStyleSheet("font-size: 17px; font-weight: 700;")
+        self.kind = QComboBox(); self.kind.addItem("Note", "note"); self.kind.addItem("Decision", "decision")
+        self.kind.currentIndexChanged.connect(lambda _i: self.documentKindChanged.emit(str(self.kind.currentData())))
+        header.addWidget(title); header.addStretch(1); header.addWidget(QLabel("Type:")); header.addWidget(self.kind); root.addLayout(header)
+
+        self.repo_label = QLabel("No repository attached to this project."); self.repo_label.setWordWrap(True); root.addWidget(self.repo_label)
+        status_row = QHBoxLayout(); self.status = QLabel("No linked code"); self.status.setStyleSheet("font-weight: 700;")
+        scan = QPushButton("Scan now"); scan.clicked.connect(self.scanRequested)
+        self.review = QPushButton("✓ Mark as Reviewed"); self.review.clicked.connect(self.markReviewedRequested)
+        status_row.addWidget(self.status); status_row.addStretch(1); status_row.addWidget(scan); status_row.addWidget(self.review); root.addLayout(status_row)
+
+        root.addWidget(self._section("Code links"))
+        link_buttons = QHBoxLayout()
+        for text, signal in (("+ Repository", self.addRepositoryLinkRequested), ("+ Folder", self.addDirectoryLinkRequested), ("+ File", self.addFileLinkRequested)):
+            button = QPushButton(text); button.clicked.connect(signal); link_buttons.addWidget(button)
+        link_buttons.addStretch(1); root.addLayout(link_buttons)
+        self.resources = QTreeWidget(); self.resources.setHeaderLabels(["Target", "Scope", "Baseline", "Status"]); self.resources.setRootIsDecorated(False)
+        self.resources.itemDoubleClicked.connect(self._resource_double_clicked); root.addWidget(self.resources, 1)
+        remove_resource = QPushButton("Remove selected code link"); remove_resource.clicked.connect(self._remove_resource); root.addWidget(remove_resource)
+
+        root.addWidget(self._section("Implementation references"))
+        refs_row = QHBoxLayout(); commit = QPushButton("+ Commit"); commit.clicked.connect(self.addCommitRequested)
+        pr = QPushButton("+ Pull Request"); pr.clicked.connect(self.addPullRequestRequested); refs_row.addWidget(commit); refs_row.addWidget(pr); refs_row.addStretch(1); root.addLayout(refs_row)
+        self.refs = QListWidget(); self.refs.setMaximumHeight(160); root.addWidget(self.refs)
+        remove_ref = QPushButton("Remove selected reference"); remove_ref.clicked.connect(self._remove_external); root.addWidget(remove_ref)
+
+        self.hint = QLabel("Tip: select a diagram node before adding a code link to attach the path to that specific architecture node.")
+        self.hint.setWordWrap(True); self.hint.setStyleSheet("font-size: 11px;"); root.addWidget(self.hint)
+
+    @staticmethod
+    def _section(text: str) -> QLabel:
+        label = QLabel(text); label.setStyleSheet("font-size: 13px; font-weight: 700; margin-top: 5px;"); return label
+
+    def set_kind(self, kind: str) -> None:
+        idx = self.kind.findData(kind); self.kind.blockSignals(True); self.kind.setCurrentIndex(max(0, idx)); self.kind.blockSignals(False)
+
+    def set_repository(self, repo: Repository | None) -> None:
+        if repo is None:
+            self.repo_label.setText("No repository attached to this project."); return
+        parts = []
+        if repo.local_path: parts.append(f"Local: {repo.local_path}")
+        if repo.github_full_name: parts.append(f"GitHub: {repo.github_full_name}")
+        branch = repo.default_branch or "unknown branch"
+        self.repo_label.setText(("  •  ".join(parts) if parts else "Repository") + f"  •  {branch}")
+
+    def set_data(self, links: list[ResourceLink], refs: list[ExternalRef]) -> None:
+        self.resources.clear(); needs_review = False
+        for link in links:
+            scope = "Diagram node" if link.diagram_item_id else "Document"
+            baseline = (link.baseline_sha or "—")[:10]
+            status = "⚠ Needs Review" if link.needs_review else "✓ Current"
+            needs_review = needs_review or link.needs_review
+            label = link.display_label or link.resource_value or "Repository"
+            item = QTreeWidgetItem([label, scope, baseline, status]); item.setData(0, Qt.ItemDataRole.UserRole, link.id)
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, link.resource_value); self.resources.addTopLevelItem(item)
+        if not links: self.status.setText("No linked code")
+        elif needs_review: self.status.setText("⚠ Needs Review — linked code changed")
+        else: self.status.setText("✓ Current — linked code unchanged since review")
+        self.review.setEnabled(bool(links))
+
+        self.refs.clear()
+        for ref in refs:
+            prefix = {"pull_request": "PR", "commit": "Commit", "branch": "Branch"}.get(ref.ref_type, ref.ref_type)
+            text = f"{prefix} {ref.ref_value} — {ref.title}" if ref.title else f"{prefix} {ref.ref_value}"
+            item = QListWidgetItem(text); item.setData(Qt.ItemDataRole.UserRole, ref.id); self.refs.addItem(item)
+
+    def _remove_resource(self) -> None:
+        item = self.resources.currentItem()
+        if item: self.removeResourceRequested.emit(int(item.data(0, Qt.ItemDataRole.UserRole)))
+
+    def _remove_external(self) -> None:
+        item = self.refs.currentItem()
+        if item: self.removeExternalRequested.emit(int(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _resource_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        value = str(item.data(0, Qt.ItemDataRole.UserRole + 1) or "")
+        if value: self.openResourceRequested.emit(value)
 ````
 
 ## `app/widgets/diagram_view.py`
@@ -4017,6 +5846,7 @@ class DiagramCanvas(QGraphicsView):
 
 class DiagramView(QWidget):
     diagramChanged = Signal()
+    selectionChanged = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -4028,6 +5858,7 @@ class DiagramView(QWidget):
         bar.setContentsMargins(6, 4, 6, 0)
         self.scene = DiagramScene(self)
         self.scene.diagramChanged.connect(self.diagramChanged)
+        self.scene.selectionChanged.connect(self.selectionChanged)
         self.canvas = DiagramCanvas(self.scene)
         self._mode_buttons: dict[str, QPushButton] = {}
 
@@ -4095,6 +5926,13 @@ class DiagramView(QWidget):
 
     def to_data(self) -> dict[str, object]:
         return self.scene.to_data()
+
+    def selected_item_id(self) -> str | None:
+        for item in self.scene.selectedItems():
+            item_id = getattr(item, "item_id", None)
+            if item_id:
+                return str(item_id)
+        return None
 
     def delete_selected(self) -> None:
         self.scene.delete_selected()
@@ -4237,6 +6075,7 @@ from app.widgets.find_bar import EditorFindBar
 from app.constants import TAB_SPACES
 
 TASK_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<marker>☐|☑)(?: (?P<text>.*))?$")
+NUMBERED_TEXT_LINE_RE = re.compile(r"^(?P<indent>[ ]*)(?P<number>\d+)\.(?: (?P<text>.*))?$")
 
 class SearchMarkerScrollBar(QScrollBar):
     def __init__(self, orientation: Qt.Orientation, parent=None) -> None:
@@ -4276,11 +6115,13 @@ class SearchMarkerScrollBar(QScrollBar):
 
 class NoteEditor(QTextEdit):
     taskStateChanged = Signal()
+    numberedListModeChanged = Signal(bool)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.auto_checkbox_enabled = True
         self.blank_line_after_enter = False
+        self.numbered_list_mode_enabled = False
         self.tab_spaces = TAB_SPACES
         self.base_font_size = 12
         self.setAcceptRichText(True)
@@ -4689,7 +6530,88 @@ class NoteEditor(QTextEdit):
         self._make_list(QTextListFormat.Style.ListDisc)
 
     def make_numbered_list(self) -> None:
-        self._make_list(QTextListFormat.Style.ListDecimal)
+        """Enable the plain-text numbered list mode.
+
+        Unlike QTextList's decimal markers, these numbers are real document
+        characters so Select All / Copy / TXT export includes them.
+        """
+        self.set_numbered_list_mode(True)
+
+    def set_numbered_list_mode(self, enabled: bool) -> None:
+        self.numbered_list_mode_enabled = bool(enabled)
+        if self.numbered_list_mode_enabled:
+            self._number_selected_or_current_blocks()
+
+    def _number_selected_or_current_blocks(self) -> None:
+        visible_cursor = self.textCursor()
+        document = self.document()
+        selection_start = visible_cursor.selectionStart()
+        selection_end = visible_cursor.selectionEnd()
+        original_position = visible_cursor.position()
+        original_position_in_block = visible_cursor.positionInBlock()
+        original_block_text = visible_cursor.block().text()
+        original_match = NUMBERED_TEXT_LINE_RE.match(original_block_text)
+        original_indent_len = (
+            len(original_match.group("indent"))
+            if original_match
+            else len(original_block_text) - len(original_block_text.lstrip(" "))
+        )
+        original_prefix_len = 0
+        if original_match:
+            original_prefix = f"{original_match.group('number')}."
+            if original_block_text[len(original_match.group("indent")) + len(original_prefix) :].startswith(" "):
+                original_prefix += " "
+            original_prefix_len = len(original_prefix)
+            if not visible_cursor.hasSelection():
+                # Re-enabling the mode on an existing numbered item should
+                # continue from that number instead of resetting it to 1.
+                return
+
+        end_lookup = max(selection_start, selection_end - 1) if visible_cursor.hasSelection() else selection_start
+        first_block = document.findBlock(selection_start)
+        last_block = document.findBlock(end_lookup)
+
+        blocks: list[QTextBlock] = []
+        block = first_block
+        while block.isValid():
+            blocks.append(block)
+            if block == last_block:
+                break
+            block = block.next()
+
+        # Edit from bottom to top so positions of blocks that still need work
+        # remain stable while prefixes are inserted/replaced.
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            for number, block in reversed(list(enumerate(blocks, start=1))):
+                text = block.text()
+                existing = NUMBERED_TEXT_LINE_RE.match(text)
+                indent = existing.group("indent") if existing else text[: len(text) - len(text.lstrip(" "))]
+                prefix_start = block.position() + len(indent)
+                block_cursor = QTextCursor(document)
+                block_cursor.setPosition(prefix_start)
+                if existing:
+                    old_prefix = f"{existing.group('number')}."
+                    if text[len(indent) + len(old_prefix) :].startswith(" "):
+                        old_prefix += " "
+                    block_cursor.setPosition(prefix_start + len(old_prefix), QTextCursor.MoveMode.KeepAnchor)
+                block_cursor.insertText(f"{number}. ")
+        finally:
+            edit.endEditBlock()
+
+        # Preserve the caret relative to the user's text. The prefix is real
+        # text, so a cursor positioned after the insertion point must move by
+        # exactly the prefix length delta.
+        if not visible_cursor.hasSelection() and blocks:
+            new_prefix_len = len("1. ")
+            prefix_delta = new_prefix_len - original_prefix_len
+            new_position = original_position
+            if original_position_in_block >= original_indent_len:
+                new_position += prefix_delta
+            current = QTextCursor(document)
+            current.setPosition(max(0, min(document.characterCount() - 1, new_position)))
+            self.setTextCursor(current)
 
     def _make_list(self, style: QTextListFormat.Style) -> None:
         cursor = self.textCursor()
@@ -4707,6 +6629,8 @@ class NoteEditor(QTextEdit):
         modifiers = event.modifiers()
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self.numbered_list_mode_enabled and self._handle_numbered_list_enter():
+                return
             if self.auto_checkbox_enabled and self._handle_task_enter():
                 return
             if self.blank_line_after_enter:
@@ -4722,6 +6646,37 @@ class NoteEditor(QTextEdit):
                 return
 
         super().keyPressEvent(event)
+
+    def _handle_numbered_list_enter(self) -> bool:
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            return False
+        block = cursor.block()
+        match = NUMBERED_TEXT_LINE_RE.match(block.text())
+        if not match:
+            return False
+
+        item_text = (match.group("text") or "").strip()
+        indent = match.group("indent")
+        number = int(match.group("number"))
+        if not item_text:
+            marker_start = block.position() + len(indent)
+            remove_cursor = QTextCursor(self.document())
+            remove_cursor.setPosition(marker_start)
+            remove_cursor.setPosition(block.position() + len(block.text()), QTextCursor.MoveMode.KeepAnchor)
+            remove_cursor.removeSelectedText()
+            remove_cursor.setPosition(marker_start)
+            self.setTextCursor(remove_cursor)
+            self.numbered_list_mode_enabled = False
+            self.numberedListModeChanged.emit(False)
+            return True
+
+        cursor.insertBlock()
+        if self.blank_line_after_enter:
+            cursor.insertBlock()
+        cursor.insertText(f"{indent}{number + 1}. ")
+        self.setTextCursor(cursor)
+        return True
 
     def _handle_task_enter(self) -> bool:
         cursor = self.textCursor()
@@ -4826,51 +6781,39 @@ from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QComboBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
-    QMenu,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.models import NoteSummary
+from app.models import NoteSummary, Project
 
 
 class NoteCard(QWidget):
     def __init__(self, note: NoteSummary, parent=None) -> None:
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(7, 5, 7, 5)
-        layout.setSpacing(2)
-        title = QLabel(note.title)
-        title.setStyleSheet("font-weight: 600;")
-        preview = QLabel(note.preview or "No content")
-        preview.setWordWrap(False)
-        preview.setStyleSheet("font-size: 11px;")
-        date = QLabel(self._format_date(note.updated_at))
-        date.setStyleSheet("font-size: 10px;")
-        layout.addWidget(title)
-        layout.addWidget(preview)
-        layout.addWidget(date)
+        layout = QVBoxLayout(self); layout.setContentsMargins(7, 5, 7, 5); layout.setSpacing(2)
+        title_row = QHBoxLayout(); title_row.setContentsMargins(0, 0, 0, 0)
+        kind = "DEC" if note.note_kind == "decision" else "NOTE"
+        badge = QLabel(kind); badge.setStyleSheet("font-size: 9px; font-weight: 700; padding: 1px 4px;")
+        title = QLabel(note.title); title.setStyleSheet("font-weight: 600;")
+        title_row.addWidget(badge); title_row.addWidget(title, 1)
+        if note.needs_review:
+            review = QLabel("⚠ REVIEW"); review.setToolTip("Linked code changed since this document was last reviewed")
+            review.setStyleSheet("font-size: 9px; font-weight: 700;"); title_row.addWidget(review)
+        preview = QLabel(note.preview or "No content"); preview.setWordWrap(False); preview.setStyleSheet("font-size: 11px;")
+        date = QLabel(self._format_date(note.updated_at)); date.setStyleSheet("font-size: 10px;")
+        layout.addLayout(title_row); layout.addWidget(preview); layout.addWidget(date)
 
     @staticmethod
     def _format_date(value: str) -> str:
-        try:
-            dt = datetime.fromisoformat(value)
-            return dt.astimezone().strftime("%Y-%m-%d %H:%M")
-        except ValueError:
-            return value
+        try: return datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M")
+        except ValueError: return value
 
 
 class Sidebar(QWidget):
     noteSelected = Signal(int)
     newNoteRequested = Signal()
+    newDecisionRequested = Signal()
     trashRequested = Signal()
     renameRequested = Signal(int)
     duplicateRequested = Signal(int)
@@ -4878,103 +6821,87 @@ class Sidebar(QWidget):
     exportRequested = Signal(int)
     searchChanged = Signal(str)
     sortChanged = Signal(str)
+    projectSelected = Signal(int)
+    newProjectRequested = Signal()
+    projectMenuRequested = Signal()
+    scanRequested = Signal()
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setMinimumWidth(210)
-        self.setMaximumWidth(520)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(7)
+        super().__init__(parent); self.setMinimumWidth(240); self.setMaximumWidth(560)
+        root = QVBoxLayout(self); root.setContentsMargins(8, 8, 8, 8); root.setSpacing(7)
 
-        top = QHBoxLayout()
-        label = QLabel("Notes")
-        label.setStyleSheet("font-size: 15px; font-weight: 700;")
-        new_button = QPushButton("+")
-        new_button.setToolTip("New Note (Ctrl+N)")
-        new_button.setFixedWidth(34)
-        new_button.clicked.connect(self.newNoteRequested)
-        top.addWidget(label)
-        top.addStretch(1)
-        top.addWidget(new_button)
+        project_label_row = QHBoxLayout(); project_label = QLabel("Project"); project_label.setStyleSheet("font-size: 11px; font-weight: 700;")
+        self.project_menu_button = QPushButton("•••"); self.project_menu_button.setFixedWidth(38); self.project_menu_button.clicked.connect(self.projectMenuRequested)
+        project_label_row.addWidget(project_label); project_label_row.addStretch(1); project_label_row.addWidget(self.project_menu_button)
+        self.project_combo = QComboBox(); self.project_combo.setMinimumHeight(32)
+        self.project_combo.currentIndexChanged.connect(self._project_changed)
+        project_buttons = QHBoxLayout(); new_project = QPushButton("+ Project"); new_project.clicked.connect(self.newProjectRequested)
+        scan = QPushButton("↻ Scan"); scan.setToolTip("Check linked repository changes"); scan.clicked.connect(self.scanRequested)
+        project_buttons.addWidget(new_project); project_buttons.addWidget(scan)
+        root.addLayout(project_label_row); root.addWidget(self.project_combo); root.addLayout(project_buttons)
 
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Search notes…")
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self.searchChanged)
+        divider = QLabel("Documents"); divider.setStyleSheet("font-size: 15px; font-weight: 700; margin-top: 6px;")
+        root.addWidget(divider)
+        top = QHBoxLayout();
+        new_note = QPushButton("+ Note"); new_note.setToolTip("New Note (Ctrl+N)"); new_note.clicked.connect(self.newNoteRequested)
+        new_decision = QPushButton("+ Decision"); new_decision.clicked.connect(self.newDecisionRequested)
+        top.addWidget(new_note); top.addWidget(new_decision); root.addLayout(top)
 
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItem("Recently edited", "updated")
-        self.sort_combo.addItem("Alphabetical", "title")
-        self.sort_combo.currentIndexChanged.connect(
-            lambda _index: self.sortChanged.emit(str(self.sort_combo.currentData()))
-        )
-
-        self.list = QListWidget()
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.list.customContextMenuRequested.connect(self._show_context_menu)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Search project documents…"); self.search.setClearButtonEnabled(True); self.search.textChanged.connect(self.searchChanged)
+        self.sort_combo = QComboBox(); self.sort_combo.addItem("Recently edited", "updated"); self.sort_combo.addItem("Alphabetical", "title")
+        self.sort_combo.currentIndexChanged.connect(lambda _i: self.sortChanged.emit(str(self.sort_combo.currentData())))
+        self.list = QListWidget(); self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu); self.list.customContextMenuRequested.connect(self._show_context_menu)
         self.list.currentItemChanged.connect(self._on_current_changed)
+        trash = QPushButton("Trash"); trash.clicked.connect(self.trashRequested)
+        root.addWidget(self.search); root.addWidget(self.sort_combo); root.addWidget(self.list, 1); root.addWidget(trash)
 
-        trash = QPushButton("Trash")
-        trash.setToolTip("Restore or permanently delete notes")
-        trash.clicked.connect(self.trashRequested)
+    def set_projects(self, projects: list[Project], selected_id: int | None = None) -> None:
+        self.project_combo.blockSignals(True); self.project_combo.clear(); selected_index = -1
+        for index, project in enumerate(projects):
+            self.project_combo.addItem(project.name, project.id)
+            if project.id == selected_id: selected_index = index
+        if selected_index >= 0: self.project_combo.setCurrentIndex(selected_index)
+        elif self.project_combo.count(): self.project_combo.setCurrentIndex(0)
+        self.project_combo.blockSignals(False)
 
-        root.addLayout(top)
-        root.addWidget(self.search)
-        root.addWidget(self.sort_combo)
-        root.addWidget(self.list, 1)
-        root.addWidget(trash)
+    def current_project_id(self) -> int | None:
+        data = self.project_combo.currentData()
+        try: return int(data) if data is not None else None
+        except (TypeError, ValueError): return None
+
+    def _project_changed(self, _index: int) -> None:
+        project_id = self.current_project_id()
+        if project_id is not None: self.projectSelected.emit(project_id)
 
     def set_notes(self, notes: list[NoteSummary], selected_id: int | None = None) -> None:
-        self.list.blockSignals(True)
-        self.list.clear()
-        selected_item: QListWidgetItem | None = None
+        self.list.blockSignals(True); self.list.clear(); selected_item: QListWidgetItem | None = None
         for note in notes:
-            item = QListWidgetItem()
-            item.setData(Qt.ItemDataRole.UserRole, note.id)
-            card = NoteCard(note)
-            item.setSizeHint(card.sizeHint())
-            self.list.addItem(item)
-            self.list.setItemWidget(item, card)
-            if note.id == selected_id:
-                selected_item = item
-        if selected_item is not None:
-            self.list.setCurrentItem(selected_item)
+            item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, note.id)
+            card = NoteCard(note); item.setSizeHint(card.sizeHint()); self.list.addItem(item); self.list.setItemWidget(item, card)
+            if note.id == selected_id: selected_item = item
+        if selected_item is not None: self.list.setCurrentItem(selected_item)
         self.list.blockSignals(False)
 
     def select_note(self, note_id: int) -> None:
         for index in range(self.list.count()):
             item = self.list.item(index)
             if int(item.data(Qt.ItemDataRole.UserRole)) == note_id:
-                self.list.setCurrentItem(item)
-                self.list.scrollToItem(item)
-                return
+                self.list.setCurrentItem(item); self.list.scrollToItem(item); return
 
     def _on_current_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
-        if current is not None:
-            self.noteSelected.emit(int(current.data(Qt.ItemDataRole.UserRole)))
+        if current is not None: self.noteSelected.emit(int(current.data(Qt.ItemDataRole.UserRole)))
 
     def _show_context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
-        if item is None:
-            return
-        note_id = int(item.data(Qt.ItemDataRole.UserRole))
-        menu = QMenu(self)
-        rename = menu.addAction("Rename")
-        duplicate = menu.addAction("Duplicate")
-        export = menu.addAction("Export TXT")
-        menu.addSeparator()
-        delete = menu.addAction("Delete to Trash")
-        chosen = menu.exec(self.list.mapToGlobal(pos))
-        if chosen == rename:
-            self.renameRequested.emit(note_id)
-        elif chosen == duplicate:
-            self.duplicateRequested.emit(note_id)
-        elif chosen == export:
-            self.exportRequested.emit(note_id)
-        elif chosen == delete:
-            self.deleteRequested.emit(note_id)
+        if item is None: return
+        note_id = int(item.data(Qt.ItemDataRole.UserRole)); menu = QMenu(self)
+        rename = menu.addAction("Rename"); duplicate = menu.addAction("Duplicate"); export = menu.addAction("Export TXT")
+        menu.addSeparator(); delete = menu.addAction("Delete to Trash"); chosen = menu.exec(self.list.mapToGlobal(pos))
+        if chosen == rename: self.renameRequested.emit(note_id)
+        elif chosen == duplicate: self.duplicateRequested.emit(note_id)
+        elif chosen == export: self.exportRequested.emit(note_id)
+        elif chosen == delete: self.deleteRequested.emit(note_id)
 ````
 
 ## `build.ps1`
@@ -5566,6 +7493,85 @@ def test_blank_line_after_enter_with_auto_checkbox(app: QApplication) -> None:
     assert editor.toPlainText() == "☐ Backend\n\n☐ "
 
 
+
+def test_plain_text_list_mode_numbers_selected_lines_and_select_all_includes_markers(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("Alpha\nBeta\nGamma")
+    editor.selectAll()
+    editor.set_numbered_list_mode(True)
+
+    expected = "1. Alpha\n2. Beta\n3. Gamma"
+    assert editor.toPlainText() == expected
+    block = editor.document().firstBlock()
+    while block.isValid():
+        assert block.textList() is None
+        block = block.next()
+
+    editor.selectAll()
+    selected = editor.textCursor().selectedText().replace("\u2029", "\n")
+    assert selected == expected
+
+
+def test_plain_text_list_mode_enter_continues_numbering(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.setPlainText("First item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "1. First item\n2. "
+
+
+def test_plain_text_list_mode_works_with_double_enter(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.set_auto_checkbox(False)
+    editor.set_blank_line_after_enter(True)
+    editor.setPlainText("First item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == "1. First item\n\n2. "
+
+
+def test_empty_plain_text_list_item_exits_list_mode(app: QApplication) -> None:
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    editor = NoteEditor()
+    editor.setPlainText("1. ")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+    editor.set_numbered_list_mode(True)
+
+    QTest.keyClick(editor, Qt.Key.Key_Return)
+    assert editor.toPlainText() == ""
+    assert editor.numbered_list_mode_enabled is False
+
+
+def test_reenabling_list_mode_on_existing_item_keeps_its_number(app: QApplication) -> None:
+    editor = NoteEditor()
+    editor.setPlainText("7. Existing item")
+    cursor = editor.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    editor.setTextCursor(cursor)
+
+    editor.set_numbered_list_mode(True)
+    assert editor.toPlainText() == "7. Existing item"
+
+
 def test_inline_find_highlights_all_matches_and_advances_down(app: QApplication) -> None:
     editor = NoteEditor()
     editor.setPlainText("git one\ngit two\nGIT three")
@@ -5640,6 +7646,164 @@ def test_inline_find_close_clears_highlights(app: QApplication) -> None:
     assert editor.is_find_bar_visible() is False
     assert editor.extraSelections() == []
     assert editor.search_match_ranges() == ()
+````
+
+## `tests/test_engineering_context.py`
+
+````python
+from __future__ import annotations
+
+import sqlite3
+import subprocess
+from pathlib import Path
+
+from app.database import Database
+from app.services.local_git import inspect_repository, parse_github_remote
+from app.services.repository_scanner import RepositoryScanner, resource_is_affected
+
+
+def _git(path: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def _init_repo(path: Path) -> None:
+    path.mkdir()
+    _git(path, "init")
+    _git(path, "config", "user.email", "devnest@example.test")
+    _git(path, "config", "user.name", "DevNest Test")
+    _git(path, "remote", "add", "origin", "git@github.com:acme/backend.git")
+
+
+def test_v1_database_migrates_without_losing_notes(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.db"
+    con = sqlite3.connect(db_path)
+    con.executescript(
+        """
+        CREATE TABLE notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content_html TEXT NOT NULL DEFAULT '',
+            content_plain TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_deleted INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE diagrams (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id INTEGER NOT NULL UNIQUE,
+            data_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        INSERT INTO notes(title, content_html, content_plain, created_at, updated_at, is_deleted)
+        VALUES ('Legacy', '<p>kept</p>', 'kept', '2026-01-01', '2026-01-01', 0);
+        PRAGMA user_version = 1;
+        """
+    )
+    con.commit(); con.close()
+
+    db = Database(db_path)
+    try:
+        note = db.get_note(1)
+        assert note is not None
+        assert note.title == "Legacy"
+        assert note.uuid
+        assert note.project_id is not None
+        assert db.connection.execute("PRAGMA user_version").fetchone()[0] == Database.SCHEMA_VERSION
+        assert (tmp_path / "legacy.pre-v2.backup.db").exists()
+    finally:
+        db.close()
+
+
+def test_parse_github_remote_supports_ssh_and_https() -> None:
+    assert parse_github_remote("git@github.com:acme/backend.git") == ("acme", "backend")
+    assert parse_github_remote("https://github.com/acme/backend.git") == ("acme", "backend")
+    assert parse_github_remote("https://gitlab.com/acme/backend.git") == (None, None)
+
+
+def test_resource_scope_matching(tmp_path: Path) -> None:
+    db = Database(tmp_path / "links.db")
+    try:
+        project = db.create_project("API")
+        note = db.create_note(project_id=project.id)
+        repo = db.add_repository(project.id, local_path=str(tmp_path / "repo"))
+        directory = db.add_resource_link(note.id, repo.id, "directory", "src/auth", baseline_sha="a")
+        file_link = db.add_resource_link(note.id, repo.id, "file", "src/db.py", baseline_sha="a")
+        assert resource_is_affected(directory, ["src/auth/session.py"])
+        assert not resource_is_affected(directory, ["src/other.py"])
+        assert resource_is_affected(file_link, ["src/db.py"])
+        assert not resource_is_affected(file_link, ["src/db.py.old"])
+    finally:
+        db.close()
+
+
+def test_local_repository_scan_marks_link_needs_review(tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    _init_repo(repo_path)
+    (repo_path / "src").mkdir()
+    (repo_path / "src" / "auth.py").write_text("VERSION = 1\n", encoding="utf-8")
+    (repo_path / "README.md").write_text("hello\n", encoding="utf-8")
+    _git(repo_path, "add", ".")
+    _git(repo_path, "commit", "-m", "initial")
+    info = inspect_repository(repo_path)
+
+    db = Database(tmp_path / "devnest.db")
+    try:
+        project = db.create_project("Backend")
+        note = db.create_note("Auth decision", project_id=project.id, note_kind="decision")
+        repo = db.add_repository(
+            project.id, local_path=str(info.root), github_owner=info.github_owner,
+            github_repo=info.github_repo, default_branch=info.branch,
+        )
+        db.update_repository(repo.id, last_seen_sha=info.head_sha)
+        link = db.add_resource_link(note.id, repo.id, "file", "src/auth.py", baseline_sha=info.head_sha)
+
+        # An unrelated commit must not mark this link.
+        (repo_path / "README.md").write_text("changed\n", encoding="utf-8")
+        _git(repo_path, "add", "."); _git(repo_path, "commit", "-m", "docs")
+        result = RepositoryScanner(db).scan_repository(repo.id)
+        assert result.error is None
+        assert not db.get_resource_link(link.id).needs_review  # type: ignore[union-attr]
+
+        # A commit touching the linked file must mark it Needs Review from the original baseline.
+        (repo_path / "src" / "auth.py").write_text("VERSION = 2\n", encoding="utf-8")
+        _git(repo_path, "add", "."); _git(repo_path, "commit", "-m", "change auth")
+        result = RepositoryScanner(db).scan_repository(repo.id)
+        updated = db.get_resource_link(link.id)
+        assert result.error is None
+        assert updated is not None and updated.needs_review
+        assert updated.change_count >= 2  # baseline spans both commits
+
+        head = _git(repo_path, "rev-parse", "HEAD")
+        db.mark_note_reviewed(note.id, repo.id, head)
+        reviewed = db.get_resource_link(link.id)
+        assert reviewed is not None and not reviewed.needs_review
+        assert reviewed.baseline_sha == head
+    finally:
+        db.close()
+
+
+def test_github_repository_listing_is_limited_to_app_installations(monkeypatch) -> None:
+    from app.services.github_client import GitHubClient
+
+    client = GitHubClient("Iv1.test")
+    monkeypatch.setattr(client, "access_token", lambda: "token")
+
+    def fake_request(url: str, **_kwargs):
+        if url.startswith("https://api.github.com/user/installations?"):
+            return {"installations": [{"id": 10}, {"id": 20}]}
+        if "/user/installations/10/repositories" in url:
+            return {"repositories": [{"id": 1, "full_name": "acme/backend"}]}
+        if "/user/installations/20/repositories" in url:
+            return {"repositories": [{"id": 2, "full_name": "me/frontend"}]}
+        raise AssertionError(url)
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    repos = client.list_repositories()
+    assert [repo["full_name"] for repo in repos] == ["acme/backend", "me/frontend"]
+    assert repos[0]["_devnest_installation_id"] == 10
+    assert repos[1]["_devnest_installation_id"] == 20
 ````
 
 ## `tests/test_settings.py`
@@ -5786,5 +7950,5 @@ from app.constants import VERSION
 
 
 def test_version_is_single_source() -> None:
-    assert VERSION == "1.2.5"
+    assert VERSION == "2.0.0"
 ````
