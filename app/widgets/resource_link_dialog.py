@@ -37,23 +37,25 @@ class GitHubPathBrowser(QDialog):
     intentionally never downloads the whole repository tree.
     """
 
-    def __init__(self, repository: Repository, target_type: str, loader: GitHubContentsLoader, parent=None) -> None:
+    def __init__(self, repository: Repository, target_type: str, loader: GitHubContentsLoader, i18n: I18n | None = None, parent=None) -> None:
         super().__init__(parent)
         self.repository = repository
         self.target_type = target_type
         self.loader = loader
+        self.i18n = i18n
         self.runner = AsyncTaskRunner()
         self.current_path = ""
         self.selected_path = ""
-        self.setWindowTitle(f"Browse {repository.full_name or repository.name}")
+        tr = bool(i18n and i18n.language == "tr")
+        self.setWindowTitle(f"{repository.full_name or repository.name} — " + ("Dosya/Klasör Seç" if tr else "Choose File/Folder"))
         self.resize(680, 520)
 
         root = QVBoxLayout(self)
-        intro = QLabel("Browse repository contents from GitHub (read-only). Directories load only when opened.")
+        intro = QLabel("GitHub deposundaki dosya ve klasörleri burada sadece okuyarak gezebilirsiniz. Bir klasör yalnızca açtığınızda yüklenir." if tr else "Browse repository contents from GitHub (read-only). Directories load only when opened.")
         intro.setWordWrap(True)
         root.addWidget(intro)
         nav = QHBoxLayout()
-        self.up_button = QPushButton("Up")
+        self.up_button = QPushButton("Üst klasör" if tr else "Up")
         self.up_button.clicked.connect(self._go_up)
         self.path_label = QLabel("/")
         self.path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -64,12 +66,14 @@ class GitHubPathBrowser(QDialog):
         self.list.itemDoubleClicked.connect(self._open_item)
         self.list.currentItemChanged.connect(lambda _c, _p: self._update_select_state())
         root.addWidget(self.list, 1)
-        self.status = QLabel("Loading…")
+        self.status = QLabel("Yükleniyor…" if tr else "Loading…")
         self.status.setObjectName("mutedText")
         root.addWidget(self.status)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         self.select_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        self.select_button.setText("Select")
+        self.select_button.setText("Seç" if tr else "Select")
+        if tr:
+            buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("İptal")
         buttons.accepted.connect(self._choose)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -82,7 +86,7 @@ class GitHubPathBrowser(QDialog):
         self.list.clear()
         self.list.setEnabled(False)
         self.select_button.setEnabled(False)
-        self.status.setText("Loading repository contents…")
+        self.status.setText("Depo içeriği yükleniyor…" if self.i18n and self.i18n.language == "tr" else "Loading repository contents…")
         self.runner.submit(
             lambda: self.loader(self.repository, self.current_path),
             self._loaded,
@@ -101,12 +105,12 @@ class GitHubPathBrowser(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, (kind, path))
             self.list.addItem(item)
         self.list.setEnabled(True)
-        self.status.setText("Double-click a directory to open it. GitHub access remains read-only.")
+        self.status.setText("Klasörü açmak için çift tıklayın. DevNest GitHub'da hiçbir dosyayı değiştiremez." if self.i18n and self.i18n.language == "tr" else "Double-click a directory to open it. GitHub access remains read-only.")
         self._update_select_state()
 
     def _failed(self, exc: Exception) -> None:
         self.list.setEnabled(True)
-        self.status.setText(f"Could not load this path: {exc}")
+        self.status.setText((f"Bu yol yüklenemedi: {exc}" if self.i18n and self.i18n.language == "tr" else f"Could not load this path: {exc}"))
         self._update_select_state()
 
     def _go_up(self) -> None:
@@ -132,15 +136,15 @@ class GitHubPathBrowser(QDialog):
             if item:
                 data = item.data(Qt.ItemDataRole.UserRole)
                 if isinstance(data, tuple) and data[0] == "dir":
-                    self.select_button.setText("Select Directory")
+                    self.select_button.setText("Bu klasörü seç" if self.i18n and self.i18n.language == "tr" else "Select Directory")
                 else:
-                    self.select_button.setText("Select Current Directory")
+                    self.select_button.setText("Bulunduğum klasörü seç" if self.i18n and self.i18n.language == "tr" else "Select Current Directory")
             else:
-                self.select_button.setText("Select Current Directory")
+                self.select_button.setText("Bulunduğum klasörü seç" if self.i18n and self.i18n.language == "tr" else "Select Current Directory")
         else:
             data = item.data(Qt.ItemDataRole.UserRole) if item else None
             self.select_button.setEnabled(bool(isinstance(data, tuple) and data[0] == "file"))
-            self.select_button.setText("Select File")
+            self.select_button.setText("Dosyayı seç" if self.i18n and self.i18n.language == "tr" else "Select File")
 
     def _choose(self) -> None:
         item = self.list.currentItem()
@@ -216,6 +220,8 @@ class ResourceLinkDialog(QDialog):
         root.addWidget(self.hint)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText(t("resources.link") if i18n else "Link")
+        if i18n and i18n.language == "tr":
+            buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("İptal")
         buttons.accepted.connect(self._validate)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
@@ -251,15 +257,15 @@ class ResourceLinkDialog(QDialog):
         root = Path(repo.local_git_root)
         target_type = str(self.target_type.currentData())
         if target_type == TargetType.DIRECTORY.value:
-            chosen = QFileDialog.getExistingDirectory(self, "Select Repository Directory", str(root))
+            chosen = QFileDialog.getExistingDirectory(self, "Depodaki Klasörü Seç" if self.i18n and self.i18n.language == "tr" else "Select Repository Directory", str(root))
         else:
-            chosen, _ = QFileDialog.getOpenFileName(self, "Select Repository File", str(root))
+            chosen, _ = QFileDialog.getOpenFileName(self, "Depodaki Dosyayı Seç" if self.i18n and self.i18n.language == "tr" else "Select Repository File", str(root))
         if not chosen:
             return
         try:
             relative = Path(chosen).resolve().relative_to(root.resolve()).as_posix()
         except ValueError:
-            QMessageBox.warning(self, "Outside Repository", "Select a file or directory inside the linked repository.")
+            QMessageBox.warning(self, "Depo Dışında" if self.i18n and self.i18n.language == "tr" else "Outside Repository", "Bağlı deponun içinden bir dosya veya klasör seçin." if self.i18n and self.i18n.language == "tr" else "Select a file or directory inside the linked repository.")
             return
         if target_type == TargetType.DIRECTORY.value and relative:
             relative += "/"
@@ -269,20 +275,20 @@ class ResourceLinkDialog(QDialog):
         repo = self._selected_repo()
         if not repo or not self.github_contents_loader:
             return
-        browser = GitHubPathBrowser(repo, str(self.target_type.currentData()), self.github_contents_loader, self)
+        browser = GitHubPathBrowser(repo, str(self.target_type.currentData()), self.github_contents_loader, self.i18n, self)
         if browser.exec() == QDialog.DialogCode.Accepted:
             self.target_value.setText(browser.selected_path)
 
     def _validate(self) -> None:
         if self.repository.currentData() is None:
-            QMessageBox.warning(self, "Repository Required", "Link a repository to this project first.")
+            QMessageBox.warning(self, "Depo Gerekli" if self.i18n and self.i18n.language == "tr" else "Repository Required", "Önce bu projeye bir depo ekleyin." if self.i18n and self.i18n.language == "tr" else "Link a repository to this project first.")
             return
         target_type = str(self.target_type.currentData())
         value = self.target_value.text().strip()
         if target_type != TargetType.REPOSITORY.value and not value:
             # Empty path is meaningful only when selecting the repository root as a directory.
             if target_type != TargetType.DIRECTORY.value:
-                QMessageBox.warning(self, "Target Required", "Enter or select a repository target.")
+                QMessageBox.warning(self, "Dosya/Klasör Gerekli" if self.i18n and self.i18n.language == "tr" else "Target Required", "Depo içinde takip edilecek bir dosya, klasör veya referans seçin." if self.i18n and self.i18n.language == "tr" else "Enter or select a repository target.")
                 return
         self.accept()
 

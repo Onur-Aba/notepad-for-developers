@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 
 from app.database import Database, DatabaseError
 from app.i18n import I18n
-from app.models import DecisionStatus
+from app.models import DecisionStatus, ReviewStatus
 from app.widgets.note_editor import NoteEditor
 from app.widgets.status_badge import StatusBadge
 
@@ -34,6 +34,7 @@ class DecisionsPage(QWidget):
         self.i18n = i18n
         self.project_id: int | None = None
         self.current_decision_id: int | None = None
+        self.review_statuses: dict[int, ReviewStatus] = {}
         self._loading = False
         self._dirty = False
         self.timer = QTimer(self)
@@ -158,6 +159,20 @@ class DecisionsPage(QWidget):
         resources_layout.addWidget(self.resources_label)
         editor_layout.addWidget(self.resources_box)
 
+        self.tracking_box = QFrame()
+        self.tracking_box.setObjectName("helperBanner")
+        tracking_layout = QVBoxLayout(self.tracking_box)
+        tracking_layout.setContentsMargins(12, 9, 12, 9)
+        tracking_layout.setSpacing(3)
+        self.tracking_title = QLabel()
+        self.tracking_title.setObjectName("helperTitle")
+        self.tracking_text = QLabel()
+        self.tracking_text.setWordWrap(True)
+        self.tracking_text.setObjectName("mutedText")
+        tracking_layout.addWidget(self.tracking_title)
+        tracking_layout.addWidget(self.tracking_text)
+        editor_layout.addWidget(self.tracking_box)
+
         actions = QHBoxLayout()
         self.link_button = QPushButton()
         self.link_button.setObjectName("primaryButton")
@@ -191,6 +206,7 @@ class DecisionsPage(QWidget):
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
         self._set_editor_enabled(False)
         self.retranslate_ui()
+        self.set_review_status(ReviewStatus.NOT_REVIEWED, has_links=False)
 
     def retranslate_ui(self) -> None:
         self.page_title.setText(self.i18n.t("decision.title"))
@@ -198,13 +214,43 @@ class DecisionsPage(QWidget):
         self.new_button.setText(self.i18n.t("decision.new"))
         self.new_button.setToolTip(self.i18n.t("tip.decision.new"))
         self.guide_title.setText(self.i18n.t("decision.guide_title"))
-        self.guide_text.setText(self.i18n.t("decision.guide"))
+        self.guide_text.setText(
+            "Karar, kodun NE yaptığını yazdığınız yer değildir; o kodu NEDEN öyle yaptığınızı kaydettiğiniz yerdir. "
+            "Örnek: ‘SQLite kullandık çünkü uygulama yerel çalışmalı ve sunucu gerektirmemeli.’ Sonra bu kararı ilgili dosya/klasöre bağlayın. "
+            "‘Takibi başlat’ dediğiniz andaki commit başlangıç olur. Bundan sonra bağlı kod değişirse DevNest bu kararı İncelenecekler'e taşır."
+            if self.i18n.language == "tr" else
+            "A decision is not where you describe WHAT the code does; it records WHY the code was built that way. "
+            "Example: ‘We use SQLite because the app must work locally without a server.’ Then connect the decision to the relevant file/folder. "
+            "When you start tracking, the current commit becomes the reference point. If linked code changes later, DevNest moves this decision to Needs Review."
+        )
         self.search.setPlaceholderText(self.i18n.t("decision.search"))
         self.repo_filter_label.setText(self.i18n.t("decision.filter_repo"))
         self.repo_filter.setToolTip(self.i18n.t("tip.decision.repo_filter"))
         self.project_caption.setText(self.i18n.t("decision.current_project"))
         self.repo_caption.setText(self.i18n.t("decision.connected_repos"))
         self.title_edit.setPlaceholderText(self.i18n.t("decision.title_placeholder"))
+        self.editor.setPlaceholderText(
+            (
+                "Buraya kararın nedenini yazın. Örnek:\n\n"
+                "Sorun: Hangi problemi çözüyorduk?\n"
+                "Karar: Ne yapmayı seçtik?\n"
+                "Neden: Neden bu seçeneği tercih ettik?\n"
+                "Sonuç: Bunun bize getirdiği avantaj/dezavantaj ne?"
+            )
+            if self.i18n.language == "tr" else
+            (
+                "Write the reasoning here. Example:\n\n"
+                "Problem: What problem were we solving?\n"
+                "Decision: What did we choose?\n"
+                "Why: Why did we choose it?\n"
+                "Consequences: What are the benefits/trade-offs?"
+            )
+        )
+        self.status_combo.setToolTip(
+            "Bu alan kararın yaşam durumudur (önerildi, kabul edildi vb.). Kodun değişip değişmediğini sağdaki takip durumu gösterir."
+            if self.i18n.language == "tr" else
+            "This is the decision lifecycle (proposed, accepted, etc.). The tracking state on the right tells you whether linked code changed."
+        )
         self.resources_heading.setText(self.i18n.t("decision.resources"))
         self.link_button.setText(self.i18n.t("decision.link"))
         self.changes_button.setText(self.i18n.t("decision.changes"))
@@ -295,7 +341,16 @@ class DecisionsPage(QWidget):
                     repo_names.append(repo.full_name or repo.name)
             repo_line = ", ".join(sorted(repo_names, key=str.casefold)) if repo_names else self.i18n.t("decision.unlinked")
             status_text = self.i18n.t(f"decision.status.{decision.status}")
-            item = QListWidgetItem(f"{decision.decision_key}  ·  {status_text}\n{decision.title}\n{repo_line}")
+            review_status = self.review_statuses.get(decision.id)
+            tr = self.i18n.language == "tr"
+            tracking_text = {
+                ReviewStatus.CURRENT: "Takip: ✓ Güncel" if tr else "Tracking: ✓ Current",
+                ReviewStatus.NEEDS_REVIEW: "Takip: ⚠ Yeniden kontrol et" if tr else "Tracking: ⚠ Needs review",
+                ReviewStatus.NOT_REVIEWED: "Takip: Başlatılmadı" if tr else "Tracking: Not started",
+                ReviewStatus.CANNOT_COMPARE: "Takip: Şu an karşılaştırılamıyor" if tr else "Tracking: Cannot compare",
+            }.get(review_status, "Takip: Başlatılmadı" if tr else "Tracking: Not started")
+            repo_prefix = "Depo: " if tr else "Repository: "
+            item = QListWidgetItem(f"{decision.decision_key}  ·  {status_text}\n{decision.title}\n{repo_prefix}{repo_line}\n{tracking_text}")
             item.setData(Qt.ItemDataRole.UserRole, decision.id)
             item.setToolTip(
                 ("Bu kararı açar. Alt satırda kararın bağlı olduğu depo gösterilir." if self.i18n.language == "tr"
@@ -318,9 +373,12 @@ class DecisionsPage(QWidget):
             return
         self.save_current()
         try:
-            decision = self.database.create_decision(self.project_id)
+            decision = self.database.create_decision(
+                self.project_id,
+                "Yeni Karar" if self.i18n.language == "tr" else "Untitled Decision",
+            )
         except DatabaseError as exc:
-            QMessageBox.critical(self, "Create Decision Failed", str(exc))
+            QMessageBox.critical(self, "Karar Oluşturulamadı" if self.i18n.language == "tr" else "Create Decision Failed", str(exc))
             return
         self.current_decision_id = decision.id
         self.refresh(decision.id)
@@ -375,17 +433,19 @@ class DecisionsPage(QWidget):
             self._dirty = False
             self.refresh(self.current_decision_id)
         except DatabaseError as exc:
-            QMessageBox.critical(self, "Save Decision Failed", str(exc))
+            QMessageBox.critical(self, "Karar Kaydedilemedi" if self.i18n.language == "tr" else "Save Decision Failed", str(exc))
 
     def refresh_resources(self) -> None:
         if self.current_decision_id is None:
             self.resources_label.setText(self.i18n.t("decision.no_resources"))
             self.repo_value.setText(self.i18n.t("decision.no_repo"))
+            self.set_review_status(ReviewStatus.NOT_REVIEWED, has_links=False)
             return
         links = self.database.list_resource_links("decision", self.current_decision_id)
         if not links:
             self.resources_label.setText(self.i18n.t("decision.no_resources"))
             self.repo_value.setText(self.i18n.t("decision.no_repo"))
+            self.set_review_status(ReviewStatus.NOT_REVIEWED, has_links=False)
             return
         lines: list[str] = []
         repos: list[str] = []
@@ -418,6 +478,75 @@ class DecisionsPage(QWidget):
         self.empty_help.setText(f"{self.i18n.t('decision.empty_title')}\n{self.i18n.t('decision.empty_text')}")
         self._set_editor_enabled(False)
         self._loading = False
+
+    def set_review_summaries(self, summaries) -> None:
+        priorities = {
+            ReviewStatus.NEEDS_REVIEW: 4,
+            ReviewStatus.CANNOT_COMPARE: 3,
+            ReviewStatus.NOT_REVIEWED: 2,
+            ReviewStatus.CURRENT: 1,
+        }
+        mapping: dict[int, ReviewStatus] = {}
+        for summary in summaries:
+            link = summary.resource_link
+            if link.resource_type != "decision":
+                continue
+            try:
+                decision_id = int(link.resource_id)
+            except (TypeError, ValueError):
+                continue
+            current = mapping.get(decision_id)
+            if current is None or priorities.get(summary.status, 0) > priorities.get(current, 0):
+                mapping[decision_id] = summary.status
+        self.review_statuses = mapping
+        if self.project_id is not None:
+            self.refresh(self.current_decision_id)
+
+    def set_review_status(self, status: ReviewStatus, has_links: bool = True) -> None:
+        """Explain tracking state in plain language and make the next action obvious."""
+        tr = self.i18n.language == "tr"
+        self.review_badge.set_status(status)
+        if not has_links:
+            self.tracking_title.setText("Takip henüz başlamadı" if tr else "Tracking has not started yet")
+            self.tracking_text.setText(
+                "Önce ‘Kod bağla’ düğmesine basıp bu kararın hangi depo, klasör veya dosyayla ilgili olduğunu seçin. Kod bağlanmadan DevNest hangi değişikliği izleyeceğini bilemez."
+                if tr else
+                "First choose ‘Connect code’ and select which repository, folder or file this decision belongs to. Until code is connected, DevNest does not know what changes to watch."
+            )
+            self.review_button.setText("2. Takibi başlat" if tr else "2. Start tracking")
+            return
+        if status == ReviewStatus.NOT_REVIEWED:
+            self.tracking_title.setText("Kod bağlı, fakat başlangıç noktası seçilmedi" if tr else "Code is connected, but no starting point exists")
+            self.tracking_text.setText(
+                "Şimdi ‘Takibi başlat’ düğmesine basın. DevNest deponun şu anki commit'ini başlangıç kabul eder. BUNDAN SONRA bağlı kodda yapılan commitler bu kararı otomatik olarak İncelenecekler'e taşır."
+                if tr else
+                "Choose ‘Start tracking’ now. DevNest saves the repository's current commit as the starting point. AFTER THAT, later commits that touch the linked code automatically move this decision to Needs Review."
+            )
+            self.review_button.setText("2. Takibi başlat" if tr else "2. Start tracking")
+        elif status == ReviewStatus.CURRENT:
+            self.tracking_title.setText("✓ Takip aktif — şu anda yeniden inceleme gerekmiyor" if tr else "✓ Tracking is active — nothing needs re-checking right now")
+            self.tracking_text.setText(
+                "Bu kararın bağlı olduğu kod izleniyor. Yeni bir commit bağlı dosya/klasörü değiştirirse durum otomatik olarak ‘İncelenecek’ olur; sayfa değiştirmeniz gerekmez."
+                if tr else
+                "The code connected to this decision is being watched. If a new commit changes the linked file/folder, the state automatically becomes Needs Review; you do not need to change pages."
+            )
+            self.review_button.setText("Kontrol noktasını şimdi güncelle" if tr else "Update check point now")
+        elif status == ReviewStatus.NEEDS_REVIEW:
+            self.tracking_title.setText("⚠ Bağlı kod değişti — bu kararı yeniden kontrol edin" if tr else "⚠ Linked code changed — re-check this decision")
+            self.tracking_text.setText(
+                "Önce ‘Neyin değiştiğini gör’ düğmesine basın. Kod değişikliği bu kararın gerekçesini etkilediyse metni güncelleyin. Hâlâ doğruysa ‘Bunu kontrol ettim’ diyerek yeni commit'i başlangıç noktası yapın."
+                if tr else
+                "First choose ‘See what changed’. If the code change affects the reasoning, update the decision text. If it is still correct, choose ‘I checked this’ to make the new commit the reference point."
+            )
+            self.review_button.setText("3. Bunu kontrol ettim" if tr else "3. I checked this")
+        else:
+            self.tracking_title.setText("! Şu anda kodla karşılaştırılamıyor" if tr else "! Code cannot be compared right now")
+            self.tracking_text.setText(
+                "Bağlı depo veya eski commit şu anda okunamıyor. Yerel Git yolunu ve GitHub bağlantısını kontrol edin; karar metniniz kaybolmaz."
+                if tr else
+                "The connected repository or old commit cannot currently be read. Check the local Git path and GitHub connection; your decision text remains safe."
+            )
+            self.review_button.setText("Tekrar kontrol et" if tr else "Check again")
 
     def _set_editor_enabled(self, enabled: bool) -> None:
         for widget in (self.title_edit, self.editor, self.status_combo, self.link_button, self.changes_button, self.review_button):

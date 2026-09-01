@@ -7,6 +7,7 @@ from typing import Callable
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen, QPolygonF, QWheelEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QGraphicsItem,
     QGraphicsPathItem,
     QGraphicsRectItem,
@@ -301,7 +302,9 @@ class DiagramShape(QGraphicsPathItem):
         return result
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        text, ok = QInputDialog.getText(None, "Edit Shape", "Text:", text=self.text)
+        app = QApplication.instance()
+        tr = bool(app is not None and app.property("devnestLanguage") == "tr")
+        text, ok = QInputDialog.getText(None, "Şekil Yazısını Düzenle" if tr else "Edit Shape", "Yazı:" if tr else "Text:", text=self.text)
         if ok:
             self.label.setPlainText(text or SHAPE_LABELS.get(self.shape_type, "Shape"))
             self._position_label()
@@ -330,7 +333,9 @@ class DiagramText(QGraphicsTextItem):
         return result
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        text, ok = QInputDialog.getMultiLineText(None, "Edit Text", "Text:", self.toPlainText())
+        app = QApplication.instance()
+        tr = bool(app is not None and app.property("devnestLanguage") == "tr")
+        text, ok = QInputDialog.getMultiLineText(None, "Yazıyı Düzenle" if tr else "Edit Text", "Yazı:" if tr else "Text:", self.toPlainText())
         if ok:
             self.setPlainText(text)
             self._on_changed()
@@ -751,7 +756,9 @@ class DiagramScene(QGraphicsScene):
                 event.accept()
                 return
             if self.mode == "text":
-                text, ok = QInputDialog.getText(None, "Text", "Text:")
+                app = QApplication.instance()
+                tr = bool(app is not None and app.property("devnestLanguage") == "tr")
+                text, ok = QInputDialog.getText(None, "Yazı Ekle" if tr else "Text", "Yazı:" if tr else "Text:")
                 if ok:
                     self.add_text(pos, text or "Text")
                 event.accept()
