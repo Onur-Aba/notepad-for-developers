@@ -20,6 +20,7 @@ from app.i18n import I18n
 from app.models import ReviewStatus, ReviewSummary
 from app.widgets.diagram_view import DiagramView, DiagramShape, DiagramText, DiagramFreehand
 from app.widgets.status_badge import StatusBadge
+from app.widgets.resource_history_dialog import ResourceHistoryDialog
 
 
 class ArchitecturePage(QWidget):
@@ -87,6 +88,8 @@ class ArchitecturePage(QWidget):
         self.changes_button.clicked.connect(self._emit_changes)
         self.review_button = QPushButton()
         self.review_button.clicked.connect(self._emit_review)
+        self.history_button = QPushButton()
+        self.history_button.clicked.connect(self._show_history)
         inspector_layout.addWidget(self.inspector_title)
         inspector_layout.addWidget(self.node_name)
         inspector_layout.addWidget(self.status)
@@ -95,6 +98,7 @@ class ArchitecturePage(QWidget):
         inspector_layout.addWidget(self.link_button)
         inspector_layout.addWidget(self.changes_button)
         inspector_layout.addWidget(self.review_button)
+        inspector_layout.addWidget(self.history_button)
         inspector_layout.addStretch(1)
         splitter.addWidget(left)
         splitter.addWidget(self.diagram)
@@ -118,9 +122,11 @@ class ArchitecturePage(QWidget):
         self.link_button.setText(self.i18n.t("architecture.link"))
         self.changes_button.setText(self.i18n.t("architecture.view"))
         self.review_button.setText(self.i18n.t("architecture.review"))
+        self.history_button.setText("Geçmiş" if self.i18n.language == "tr" else "History")
         self.link_button.setToolTip(self.i18n.t("tip.notes.link"))
         self.changes_button.setToolTip(self.i18n.t("tip.notes.changes"))
         self.review_button.setToolTip(self.i18n.t("tip.notes.review"))
+        self.history_button.setToolTip("Seçili mimari öğesinin review geçmişini gösterir." if self.i18n.language == "tr" else "Show review history for the selected architecture node.")
         self._selection_changed()
 
     def set_project(self, project_id: int) -> None:
@@ -187,6 +193,9 @@ class ArchitecturePage(QWidget):
         if current is None:
             return
         self.note_id = int(current.data(Qt.ItemDataRole.UserRole))
+        note = self.database.get_note(self.note_id)
+        if note:
+            self.database.touch_recent("architecture", self.note_id, note.title, note.project_id)
         self.diagram.load_data(self.database.get_diagram(self.note_id))
         self._dirty = False
         self._apply_canvas_statuses()
@@ -217,6 +226,7 @@ class ArchitecturePage(QWidget):
         self.link_button.setEnabled(enabled)
         self.changes_button.setEnabled(enabled)
         self.review_button.setEnabled(enabled)
+        self.history_button.setEnabled(enabled)
         if not enabled:
             self.node_name.setText(self.i18n.t("architecture.select"))
             self.links.setText(self.i18n.t("architecture.links") + "\n" + self.i18n.t("architecture.none"))
@@ -293,3 +303,8 @@ class ArchitecturePage(QWidget):
         item_id = self.selected_item_id()
         if item_id and self.note_id:
             self.markReviewedRequested.emit(self.note_id, item_id)
+
+    def _show_history(self) -> None:
+        item_id = self.selected_item_id()
+        if item_id and self.note_id:
+            ResourceHistoryDialog(self.database, "diagram_item", item_id, self.note_id, self.i18n, self).exec()

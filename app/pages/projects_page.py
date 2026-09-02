@@ -107,6 +107,10 @@ class ProjectsPage(QWidget):
             text.addWidget(name)
             text.addWidget(desc)
             text.addWidget(counts)
+            favorite = QPushButton("★" if self.database.is_favorite("project", project.id) else "☆")
+            favorite.setFixedWidth(42)
+            favorite.setToolTip("Projeyi favorilerde üstte tut." if self.i18n.language == "tr" else "Keep this project at the top of favorites.")
+            favorite.clicked.connect(lambda _checked=False, pid=project.id: self._toggle_favorite(pid))
             open_button = QPushButton(self.i18n.t("projects.open"))
             open_button.setObjectName("primaryButton")
             open_button.setToolTip(self.i18n.t("tip.projects.open"))
@@ -130,12 +134,19 @@ class ProjectsPage(QWidget):
             )
             delete.clicked.connect(lambda _checked=False, pid=project.id: self._delete_project(pid))
             row.addLayout(text, 1)
+            row.addWidget(favorite)
             row.addWidget(open_button)
             row.addWidget(edit)
             row.addWidget(archive)
             row.addWidget(delete)
             self.cards.addWidget(frame)
         self.cards.addStretch(1)
+
+    def _toggle_favorite(self, project_id: int) -> None:
+        favorite = not self.database.is_favorite("project", project_id)
+        self.database.set_favorite("project", project_id, favorite, project_id)
+        self.refresh()
+        self.projectsChanged.emit()
 
     def create_project(self) -> None:
         # Existing wizard is intentionally preserved for compatibility.

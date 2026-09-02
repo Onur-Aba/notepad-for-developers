@@ -310,8 +310,54 @@ class NoteEditor(QTextEdit):
         metrics = self.fontMetrics()
         self.setTabStopDistance(metrics.horizontalAdvance(" ") * self.tab_spaces)
 
-    def set_auto_checkbox(self, enabled: bool) -> None:
+    def set_auto_checkbox(self, enabled: bool, apply_to_document: bool = False) -> None:
         self.auto_checkbox_enabled = enabled
+        if apply_to_document:
+            self.apply_auto_checkbox_to_document(enabled)
+
+    def apply_auto_checkbox_to_document(self, enabled: bool) -> None:
+        """Turn every non-empty text line into/out of a task line in one undo step."""
+        document = self.document()
+        blocks: list[QTextBlock] = []
+        block = document.firstBlock()
+        while block.isValid():
+            blocks.append(block)
+            block = block.next()
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            for block in reversed(blocks):
+                text = block.text()
+                match = TASK_LINE_RE.match(text)
+                if enabled:
+                    if not text.strip() or match:
+                        continue
+                    leading = len(text) - len(text.lstrip(" "))
+                    cursor = QTextCursor(document)
+                    cursor.setPosition(block.position() + leading)
+                    cursor.insertText("☐ ")
+                else:
+                    if not match:
+                        continue
+                    leading = len(match.group("indent"))
+                    marker_start = block.position() + leading
+                    remove_count = 1
+                    if text[leading + 1:].startswith(" "):
+                        remove_count += 1
+                    cursor = QTextCursor(document)
+                    cursor.setPosition(marker_start)
+                    cursor.setPosition(marker_start + remove_count, QTextCursor.MoveMode.KeepAnchor)
+                    cursor.removeSelectedText()
+        finally:
+            edit.endEditBlock()
+        if enabled:
+            block = document.firstBlock()
+            while block.isValid():
+                match = TASK_LINE_RE.match(block.text())
+                if match:
+                    self._apply_task_style(block, checked=match.group("marker") == "☑")
+                block = block.next()
+        self.taskStateChanged.emit()
 
     def set_blank_line_after_enter(self, enabled: bool) -> None:
         self.blank_line_after_enter = enabled
@@ -580,7 +626,7 @@ class NoteEditor(QTextEdit):
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             if self.numbered_list_mode_enabled and self._handle_numbered_list_enter():
                 return
-            if self.auto_checkbox_enabled and self._handle_task_enter():
+            if self.auto_checkbox_enabled and self._handle_auto_checkbox_enter():
                 return
             if self.blank_line_after_enter:
                 self._handle_spaced_enter(event)
@@ -627,6 +673,32 @@ class NoteEditor(QTextEdit):
         self.setTextCursor(cursor)
         return True
 
+    def _handle_auto_checkbox_enter(self) -> bool:
+        """Continue Auto Checkbox on *every* Enter press while the mode is enabled.
+
+        Existing task lines keep their indentation and split text at the caret.
+        If a legacy/plain line somehow exists while Auto Checkbox is on, Enter
+        still starts the new line with a fresh unchecked marker. This makes the
+        mode deterministic instead of depending on whether the current line was
+        already converted when the toggle was enabled.
+        """
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            return False
+        if TASK_LINE_RE.match(cursor.block().text()):
+            return self._handle_task_enter()
+
+        cursor.insertBlock()
+        if self.blank_line_after_enter:
+            cursor.insertBlock()
+        cursor.insertText("☐ ")
+        self.setTextCursor(cursor)
+        self._apply_task_style(cursor.block(), checked=False)
+        reset_fmt = QTextCharFormat()
+        reset_fmt.setFontStrikeOut(False)
+        self.mergeCurrentCharFormat(reset_fmt)
+        return True
+
     def _handle_task_enter(self) -> bool:
         cursor = self.textCursor()
         if cursor.hasSelection():
@@ -636,26 +708,37 @@ class NoteEditor(QTextEdit):
         if not match:
             return False
 
-        text = (match.group("text") or "").strip()
         indent = match.group("indent")
-        if not text:
-            marker_start = block.position() + len(indent)
-            remove_cursor = QTextCursor(self.document())
-            remove_cursor.setPosition(marker_start)
-            remove_cursor.setPosition(block.position() + len(block.text()), QTextCursor.MoveMode.KeepAnchor)
-            remove_cursor.removeSelectedText()
-            remove_cursor.setPosition(marker_start)
-            self.setTextCursor(remove_cursor)
-            return True
+        marker = match.group("marker")
+        marker_text_start = block.position() + len(indent) + 1
+        if block.text()[len(indent) + 1:].startswith(" "):
+            marker_text_start += 1
+        block_end = block.position() + len(block.text())
+        caret = cursor.position()
 
-        checked = match.group("marker") == "☑"
-        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        # Enter inside a task must split the line exactly at the caret. Any text
+        # to the right moves after the checkbox on the next line instead of
+        # being stranded on the previous line.
+        tail = ""
+        if caret < block_end:
+            tail_cursor = QTextCursor(self.document())
+            tail_cursor.setPosition(caret)
+            tail_cursor.setPosition(block_end, QTextCursor.MoveMode.KeepAnchor)
+            tail = tail_cursor.selectedText().replace("\u2029", "\n")
+            tail_cursor.removeSelectedText()
+            cursor = self.textCursor()
+            cursor.setPosition(caret)
+
         cursor.insertBlock()
         if self.blank_line_after_enter:
             cursor.insertBlock()
         cursor.insertText(f"{indent}☐ ")
+        if tail:
+            cursor.insertText(tail)
         self.setTextCursor(cursor)
-        self._apply_task_style(block, checked=checked)
+        previous_block = cursor.block().previous()
+        if previous_block.isValid():
+            self._apply_task_style(previous_block, checked=marker == "☑")
         self._apply_task_style(cursor.block(), checked=False)
         reset_fmt = QTextCharFormat()
         reset_fmt.setFontStrikeOut(False)

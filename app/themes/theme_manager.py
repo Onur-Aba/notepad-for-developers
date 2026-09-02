@@ -363,6 +363,7 @@ QLabel#cardTitle {{ font-size: 14px; font-weight: 700; }}
 QLabel#cardLabel, QLabel#fieldLabel, QLabel#contextCaption {{ color: {spec.muted}; font-size: 10px; font-weight: 700; }}
 QLabel#metricValue {{ font-size: 28px; font-weight: 760; }}
 QLabel#mutedText, QLabel#projectMeta, QLabel#sortNotice {{ color: {spec.muted}; }}
+QLabel#activityDetailText, QLabel#repositoryDetailText {{ color: {spec.text}; font-size: 11px; }}
 QLabel#sortNotice {{ font-size: 10px; }}
 QLabel#helperTitle {{ font-weight: 700; }}
 QLabel#contextValue {{ font-size: 12px; font-weight: 650; }}
@@ -426,10 +427,13 @@ QListWidget#noteList::item, QListWidget#decisionList::item {{
 }}
 QListWidget#noteList::item:hover, QListWidget#decisionList::item:hover {{ background: {spec.hover}; }}
 QListWidget#noteList::item:selected, QListWidget#decisionList::item:selected {{ background: {spec.selected}; border-color: {spec.border}; }}
-QLabel#noteCardTitle {{ font-weight: 650; }}
-QLabel#noteCardPreview {{ color: {spec.muted}; font-size: 11px; }}
-QLabel#noteCardDate {{ color: {spec.muted}; font-size: 9px; }}
-QLineEdit#documentTitle {{ font-size: 17px; font-weight: 650; padding: 8px 10px; }}
+QLabel#noteCardTitle {{ color: {spec.text}; font-size: 12px; font-weight: 650; }}
+QLabel#noteCardPreview {{ color: {spec.text}; font-size: 11px; }}
+QLabel#noteCardDate {{ color: {spec.muted}; font-size: 10px; }}
+QLineEdit#documentTitle {{
+    font-size: 17px; font-weight: 650; min-height: 26px;
+    padding: 6px 10px 8px 10px;
+}}
 QLabel#statusBadge {{ border-radius: 8px; padding: 3px 7px; font-size: 10px; font-weight: 650; }}
 QLabel#statusBadge[reviewStatus="current"] {{ background: {spec.surface_alt}; }}
 QLabel#statusBadge[reviewStatus="needs_review"] {{ border: 1px solid {spec.accent}; background: {spec.selected}; }}

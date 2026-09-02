@@ -25,15 +25,19 @@ class NoteCard(QWidget):
     def __init__(self, note: NoteSummary, no_content: str = "No content", parent=None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 7, 8, 7)
-        layout.setSpacing(3)
+        layout.setContentsMargins(9, 8, 9, 8)
+        layout.setSpacing(4)
+        self.setMinimumHeight(72)
         title = QLabel(note.title)
         title.setObjectName("noteCardTitle")
+        title.setMinimumHeight(18)
         preview = QLabel(note.preview or no_content)
         preview.setWordWrap(False)
         preview.setObjectName("noteCardPreview")
+        preview.setMinimumHeight(16)
         date = QLabel(self._format_date(note.updated_at))
         date.setObjectName("noteCardDate")
+        date.setMinimumHeight(15)
         layout.addWidget(title)
         layout.addWidget(preview)
         layout.addWidget(date)
@@ -49,6 +53,7 @@ class NoteCard(QWidget):
 
 class Sidebar(QWidget):
     noteSelected = Signal(int)
+    noteSelectionCleared = Signal()
     newNoteRequested = Signal()
     trashRequested = Signal()
     renameRequested = Signal(int)
@@ -150,7 +155,11 @@ class Sidebar(QWidget):
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, note.id)
             card = NoteCard(note, no_content)
-            item.setSizeHint(card.sizeHint())
+            hint = card.sizeHint()
+            # QListWidget item padding is outside the embedded card's sizeHint.
+            # Reserve explicit vertical room so the preview/date are never clipped.
+            hint.setHeight(max(82, hint.height() + 10))
+            item.setSizeHint(hint)
             self.list.addItem(item)
             self.list.setItemWidget(item, card)
             if note.id == selected_id:
@@ -173,6 +182,9 @@ class Sidebar(QWidget):
             note_id = int(current.data(Qt.ItemDataRole.UserRole))
             self._selected_id = note_id
             self.noteSelected.emit(note_id)
+            return
+        self._selected_id = None
+        self.noteSelectionCleared.emit()
 
     def _show_context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)

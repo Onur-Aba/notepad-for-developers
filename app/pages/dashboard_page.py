@@ -25,6 +25,7 @@ class MetricCard(QFrame):
 class DashboardPage(QWidget):
     reviewRequested = Signal()
     projectRequested = Signal(int)
+    recentRequested = Signal(str, str)
 
     def __init__(self, database: Database, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
@@ -32,6 +33,7 @@ class DashboardPage(QWidget):
         self.i18n = i18n
         self._needs_review_count = 0
         self._current_count = 0
+        self.project_id: int | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(30, 28, 30, 24)
@@ -74,6 +76,15 @@ class DashboardPage(QWidget):
         review_layout.addWidget(self.review_button)
         outer.addWidget(self.review_panel)
 
+        self.continue_title = QLabel()
+        self.continue_title.setObjectName("sectionTitle")
+        outer.addWidget(self.continue_title)
+        self.recent_container = QWidget()
+        self.recent_layout = QVBoxLayout(self.recent_container)
+        self.recent_layout.setContentsMargins(0, 0, 0, 0)
+        self.recent_layout.setSpacing(7)
+        outer.addWidget(self.recent_container)
+
         self.recent_title = QLabel()
         self.recent_title.setObjectName("sectionTitle")
         outer.addWidget(self.recent_title)
@@ -87,6 +98,11 @@ class DashboardPage(QWidget):
         self.retranslate_ui()
         self.refresh()
 
+    def set_project(self, project_id: int | None) -> None:
+        """Scope project-specific dashboard sections to the active project."""
+        self.project_id = project_id
+        self.refresh()
+
     def retranslate_ui(self) -> None:
         self.title.setText(self.i18n.t("dashboard.title"))
         self.subtitle.setText(self.i18n.t("dashboard.subtitle"))
@@ -98,6 +114,7 @@ class DashboardPage(QWidget):
         self.review_explain.setText(self.i18n.t("dashboard.review_explain"))
         self.review_button.setText(self.i18n.t("dashboard.open_review"))
         self.review_button.setToolTip(self.i18n.t("tip.dashboard.review"))
+        self.continue_title.setText("Son çalıştıkların" if self.i18n.language == "tr" else "Continue working")
         self.recent_title.setText(self.i18n.t("dashboard.recent_projects"))
         self.refresh(self._needs_review_count, self._current_count)
 
@@ -115,6 +132,34 @@ class DashboardPage(QWidget):
         self.review_panel.setProperty("attention", self._needs_review_count > 0)
         self.review_panel.style().unpolish(self.review_panel)
         self.review_panel.style().polish(self.review_panel)
+
+        while self.recent_layout.count():
+            item = self.recent_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        kind_labels = {
+            "project": "Proje" if self.i18n.language == "tr" else "Project",
+            "note": "Not" if self.i18n.language == "tr" else "Note",
+            "decision": "Karar" if self.i18n.language == "tr" else "Decision",
+            "architecture": "Mimari" if self.i18n.language == "tr" else "Architecture",
+            "repository": "Repository", "code": "Kod" if self.i18n.language == "tr" else "Code",
+        }
+        recents = self.database.list_recent(project_id=self.project_id, limit=6)
+        if not recents:
+            empty_recent = QLabel(
+                "Bu projede henüz son çalışma yok." if self.i18n.language == "tr"
+                else "No recent work in this project yet."
+            )
+            empty_recent.setObjectName("mutedText")
+            self.recent_layout.addWidget(empty_recent)
+        for recent in recents:
+            row = QFrame(); row.setObjectName("projectCard"); layout = QHBoxLayout(row); layout.setContentsMargins(14, 8, 12, 8)
+            kind = str(recent["resource_type"]); rid = str(recent["resource_id"])
+            label = QLabel(f"{kind_labels.get(kind, kind.title())} · {recent['title']}"); label.setObjectName("cardTitle"); layout.addWidget(label, 1)
+            button = QPushButton("Devam" if self.i18n.language == "tr" else "Continue")
+            button.clicked.connect(lambda _c=False, k=kind, r=rid: self.recentRequested.emit(k, r)); layout.addWidget(button)
+            self.recent_layout.addWidget(row)
 
         while self.project_layout.count():
             item = self.project_layout.takeAt(0)

@@ -71,7 +71,7 @@ def test_permanent_project_delete_keeps_repository_cache_but_removes_workspace(t
 def test_schema7_migration_adds_reversible_project_trash_columns(tmp_path: Path) -> None:
     path = tmp_path / "devnest.db"
     db = Database(path)
-    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == Database.SCHEMA_VERSION == 7
+    assert db.connection.execute("PRAGMA user_version").fetchone()[0] == Database.SCHEMA_VERSION == 8
     project_columns = {row[1] for row in db.connection.execute("PRAGMA table_info(projects)").fetchall()}
     note_columns = {row[1] for row in db.connection.execute("PRAGMA table_info(notes)").fetchall()}
     assert "trashed_at" in project_columns

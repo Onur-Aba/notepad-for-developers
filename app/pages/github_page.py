@@ -430,16 +430,28 @@ class GitHubPage(QWidget):
         self.refresh_button.setEnabled(True)
 
     def _network_error(self, exc: Exception) -> None:
+        tr = self.i18n.language == "tr"
         if isinstance(exc, GitHubAuthenticationError):
-            self.state_title.setText("GitHub reconnect required")
+            self.state_title.setText("GitHub yeniden bağlantı istiyor" if tr else "GitHub reconnection required")
             connected = False
+            friendly = (
+                "GitHub oturumunuz artık geçerli değil. Yeniden bağlandığınızda repository izinleri tekrar kontrol edilir."
+                if tr else
+                "Your GitHub session is no longer valid. Repository permissions will be checked again after you reconnect."
+            )
         else:
-            self.state_title.setText("GitHub unavailable")
+            self.state_title.setText("GitHub erişimi doğrulanamadı" if tr else "GitHub access could not be verified")
             try:
                 connected = bool(self.credential_store.get().access_token)
             except Exception:
                 connected = False
-        self.state_text.setText(f"{exc}\nLocal notes, decisions, diagrams and local Git remain available.")
+            friendly = (
+                "GitHub bağlantısı şu anda kontrol edilemedi. Yerel notlar, kararlar, mimari ve yerel Git çalışmaya devam eder."
+                if tr else
+                "GitHub connectivity could not be checked right now. Local notes, decisions, architecture and local Git remain available."
+            )
+        self.state_text.setText(friendly)
+        self.state_text.setToolTip(str(exc))
         self._syncing = False
         self.refresh_button.setEnabled(True)
         self._set_connected_controls(connected, self.database.get_github_account() is not None)
@@ -519,7 +531,12 @@ class GitHubPage(QWidget):
             top.addStretch(1)
             top.addWidget(visibility_label)
             layout.addLayout(top)
-            access = self.i18n.t("github.read_only") if repo.github_access_state == "available" else self.i18n.t("github.unavailable")
+            if repo.github_access_state == "available":
+                access = self.i18n.t("github.read_only")
+            elif repo.github_access_state == "local_only" or repo.github_repo_id is None:
+                access = "Yerel repo" if self.i18n.language == "tr" else "Local repository"
+            else:
+                access = "GitHub erişimi doğrulanamadı" if self.i18n.language == "tr" else "GitHub access not verified"
             pushed = repo.last_pushed_at or self.i18n.t("github.not_available")
             linked_projects = self.database.list_projects_for_repository(repo.id)
             project_names = ", ".join(project.name for project in linked_projects)
@@ -532,7 +549,7 @@ class GitHubPage(QWidget):
                 f"{project_line}"
             )
             detail.setWordWrap(True)
-            detail.setObjectName("mutedText")
+            detail.setObjectName("repositoryDetailText")
             layout.addWidget(detail)
             actions = QHBoxLayout()
             open_button = QPushButton(self.i18n.t("github.open"))

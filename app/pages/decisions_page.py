@@ -23,6 +23,8 @@ from app.i18n import I18n
 from app.models import DecisionStatus, ReviewStatus
 from app.widgets.note_editor import NoteEditor
 from app.widgets.status_badge import StatusBadge
+from app.widgets.tags_editor import TagsEditor
+from app.widgets.resource_history_dialog import ResourceHistoryDialog
 
 
 class DecisionsPage(QWidget):
@@ -152,9 +154,22 @@ class DecisionsPage(QWidget):
         top.addWidget(self.review_badge)
         editor_layout.addLayout(top)
 
+        title_row = QHBoxLayout()
         self.title_edit = QLineEdit()
         self.title_edit.setObjectName("documentTitle")
-        editor_layout.addWidget(self.title_edit)
+        self.title_edit.setMinimumHeight(42)
+        self.favorite_button = QPushButton("☆")
+        self.favorite_button.setFixedWidth(44)
+        self.favorite_button.clicked.connect(self._toggle_favorite)
+        self.history_button = QPushButton()
+        self.history_button.clicked.connect(self._open_history)
+        title_row.addWidget(self.title_edit, 1)
+        title_row.addWidget(self.favorite_button)
+        title_row.addWidget(self.history_button)
+        editor_layout.addLayout(title_row)
+        self.tags_editor = TagsEditor(self.i18n)
+        self.tags_editor.tagsChanged.connect(self._tags_changed)
+        editor_layout.addWidget(self.tags_editor)
 
         self.resources_box = QFrame()
         self.resources_box.setObjectName("resourceSummary")
@@ -223,6 +238,9 @@ class DecisionsPage(QWidget):
             self.status_combo,
             self.review_badge,
             self.title_edit,
+            self.favorite_button,
+            self.history_button,
+            self.tags_editor,
             self.resources_box,
             self.tracking_box,
             self.link_button,
@@ -292,6 +310,9 @@ class DecisionsPage(QWidget):
         self.link_button.setText(self.i18n.t("decision.link"))
         self.changes_button.setText(self.i18n.t("decision.changes"))
         self.review_button.setText(self.i18n.t("decision.review"))
+        self.favorite_button.setToolTip("Bu kararı favorilere ekle/çıkar." if self.i18n.language == "tr" else "Add/remove this decision from favorites.")
+        self.history_button.setText("Geçmiş" if self.i18n.language == "tr" else "History")
+        self.history_button.setToolTip("Karar değişikliklerini ve review commit geçmişini gösterir." if self.i18n.language == "tr" else "Show decision changes and reviewed commit history.")
         self.delete_button.setText("Kararı sil" if self.i18n.language == "tr" else "Delete decision")
         self.delete_button.setToolTip(
             "Bu kararı ve yalnızca DevNest içindeki bağlantılarını siler. GitHub deposuna veya kaynak koda dokunmaz."
@@ -399,7 +420,10 @@ class DecisionsPage(QWidget):
             }.get(review_status, "Takip: Başlatılmadı" if tr else "Tracking: Not started")
             repo_prefix = "Depo: " if tr else "Repository: "
             id_prefix = "Kimlik" if tr else "ID"
-            item = QListWidgetItem(f"{decision.title}\n{id_prefix}: {decision.decision_key} · {status_text}\n{repo_prefix}{repo_line}\n{tracking_text}")
+            favorite_prefix = "★ " if self.database.is_favorite("decision", decision.id) else ""
+            tags = self.database.get_tags("decision", decision.id)
+            tags_line = ("\n#" + "  #".join(tags)) if tags else ""
+            item = QListWidgetItem(f"{favorite_prefix}{decision.title}\n{id_prefix}: {decision.decision_key} · {status_text}\n{repo_prefix}{repo_line}\n{tracking_text}{tags_line}")
             item.setData(Qt.ItemDataRole.UserRole, decision.id)
             item.setToolTip(
                 ("Kararı açar. İlk satır kararın gerçek başlığıdır; DEC-xxx yalnızca değişmeyen kimliğidir. Sağ tıklayarak adını düzenleyebilir veya silebilirsiniz." if self.i18n.language == "tr"
@@ -471,6 +495,9 @@ class DecisionsPage(QWidget):
             self._dirty = False
             self._set_editor_enabled(True)
             self.empty_help.clear()
+            self.tags_editor.set_tags(self.database.get_tags("decision", decision.id))
+            self.favorite_button.setText("★" if self.database.is_favorite("decision", decision.id) else "☆")
+            self.database.touch_recent("decision", decision.id, f"{decision.decision_key} · {decision.title}", decision.project_id)
             self.refresh_resources()
         finally:
             self._loading = False
@@ -547,6 +574,26 @@ class DecisionsPage(QWidget):
         self.refresh()
         self.decisionsChanged.emit()
 
+    def _tags_changed(self, tags: list[str]) -> None:
+        if self.current_decision_id is None or self._loading:
+            return
+        self.database.set_tags("decision", self.current_decision_id, tags)
+        self.refresh(self.current_decision_id)
+        self.decisionsChanged.emit()
+
+    def _toggle_favorite(self) -> None:
+        if self.current_decision_id is None:
+            return
+        favorite = not self.database.is_favorite("decision", self.current_decision_id)
+        self.database.set_favorite("decision", self.current_decision_id, favorite, self.project_id)
+        self.favorite_button.setText("★" if favorite else "☆")
+        self.refresh(self.current_decision_id)
+        self.decisionsChanged.emit()
+
+    def _open_history(self) -> None:
+        if self.current_decision_id is not None:
+            ResourceHistoryDialog(self.database, "decision", self.current_decision_id, None, self.i18n, self).exec()
+
     def _mark_dirty(self) -> None:
         if self._loading or self.current_decision_id is None:
             return
@@ -612,6 +659,8 @@ class DecisionsPage(QWidget):
         self.title_edit.clear()
         self.editor.clear()
         self.resources_label.setText(self.i18n.t("decision.no_resources"))
+        self.tags_editor.set_tags([])
+        self.favorite_button.setText("☆")
         self.repo_value.setText(self.i18n.t("decision.no_repo"))
         self.empty_help.setText(f"{self.i18n.t('decision.empty_title')}\n{self.i18n.t('decision.empty_text')}")
         self._set_editor_enabled(False)
