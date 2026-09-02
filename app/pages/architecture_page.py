@@ -110,6 +110,7 @@ class ArchitecturePage(QWidget):
         self._selection_changed()
 
     def retranslate_ui(self) -> None:
+        self.diagram.retranslate_ui()
         self.page_title.setText(self.i18n.t("architecture.title"))
         self.page_subtitle.setText(self.i18n.t("architecture.subtitle"))
         self.help.setText(

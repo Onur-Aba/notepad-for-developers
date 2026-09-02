@@ -236,6 +236,8 @@ _TRANSLATIONS: dict[str, dict[str, str]] = {
         "tip.nav.notes": "Normal notlarınızı burada yazın. Sonradan notu bir depo, klasör veya dosyaya bağlayabilirsiniz; böylece ilgili kod değişince DevNest size haber verir.",
         "tip.nav.decisions": "Teknik bir seçimin NEDEN yapıldığını burada kaydedin. Karar sayfası kodun ne yaptığını tekrar etmekten çok, neden o şekilde yapıldığını hatırlatır.",
         "tip.nav.architecture": "Sistemin parçalarının birbirine nasıl bağlandığını çizin. Diyagram kutularını gerçek depo klasörlerine veya dosyalara bağlayabilirsiniz.",
+        "tip.nav.activity": "Commitleri, kararları, not güncellemelerini, review işlemlerini ve repository bağlantılarını tek kronolojik proje akışında görün.",
+        "tip.nav.health": "Review ve dokümantasyon sağlık sayılarını görün; ilgilenilmesi gereken bilgi alanlarını hızlıca fark edin.",
         "tip.nav.review": "Burası bilgi kontrol listenizdir. Bir not, karar veya diyagram öğesine bağlı kod son kontrolünüzden sonra değişirse burada görünür.",
         "tip.nav.teams": "Ekip çalışma alanlarını, davetleri, rolleri, hiyerarşiyi ve özel içerik erişimini açar.",
         "tip.nav.github": "DevNest'in okumasına izin verdiğiniz GitHub depolarını burada görürsünüz. DevNest kod göndermez, değiştirmez, merge etmez veya silmez.",

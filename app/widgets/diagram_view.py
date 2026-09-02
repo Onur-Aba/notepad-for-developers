@@ -1192,53 +1192,70 @@ class DiagramView(QWidget):
         self.canvas = DiagramCanvas(self.scene)
         self._mode_buttons: dict[str, QPushButton] = {}
 
-        tools = [
-            ("Select", "select", "Select/move items; selected shapes show resize handles"),
-            ("Pan", "pan", "Pan the canvas (middle mouse drag works in every tool)"),
-            ("Square", "shape:square", "Press and drag to draw a box at exactly the size you want; stretch it into a rectangle if needed"),
-            ("Round", "shape:rounded", "Press and drag to draw a rounded box at the size you want"),
-            ("Ellipse", "shape:ellipse", "Press and drag to draw an ellipse at the size you want"),
-            ("Diamond", "shape:diamond", "Press and drag to draw a decision diamond at the size you want"),
-            ("Text", "text", "Add standalone text"),
-            ("Connect", "connect", "Start on one existing item and drag any route to another item; the arrow points to the target"),
+        self._tool_specs = [
+            ("select", "Select", "Seç", "Select/move items; selected shapes show resize handles", "Öğeleri seçin/taşıyın; seçili şekiller yeniden boyutlandırma tutamaçlarını gösterir."),
+            ("pan", "Pan", "Taşı", "Pan the canvas (middle mouse drag works in every tool)", "Tuvali taşıyın (orta fare sürükleme her araçta çalışır)."),
+            ("shape:square", "Square", "Kare", "Press and drag to draw a box at exactly the size you want; stretch it into a rectangle if needed", "İstediğiniz boyutta bir kutu çizmek için basılı tutup sürükleyin; gerekirse dikdörtgene uzatın."),
+            ("shape:rounded", "Round", "Yuvarlak", "Press and drag to draw a rounded box at the size you want", "İstediğiniz boyutta köşeleri yuvarlatılmış kutu çizmek için sürükleyin."),
+            ("shape:ellipse", "Ellipse", "Elips", "Press and drag to draw an ellipse at the size you want", "İstediğiniz boyutta elips çizmek için sürükleyin."),
+            ("shape:diamond", "Diamond", "Elmas", "Press and drag to draw a decision diamond at the size you want", "İstediğiniz boyutta karar elması çizmek için sürükleyin."),
+            ("text", "Text", "Metin", "Add standalone text", "Bağımsız metin ekleyin."),
+            ("connect", "Connect", "Bağla", "Start on one existing item and drag any route to another item; the arrow points to the target", "Var olan bir öğeden başlayıp başka bir öğeye rota çizin; ok hedefi gösterir."),
         ]
-        for label, mode, tooltip in tools:
-            button = QPushButton(label)
+        for mode, en_label, _tr_label, en_tip, _tr_tip in self._tool_specs:
+            button = QPushButton(en_label)
             button.setCheckable(True)
-            button.setToolTip(tooltip)
+            button.setToolTip(en_tip)
             button.clicked.connect(lambda _checked=False, m=mode: self.set_mode(m))
             bar.addWidget(button)
             self._mode_buttons[mode] = button
 
         bar.addStretch(1)
-        duplicate = QPushButton("Duplicate")
-        duplicate.setToolTip("Duplicate selected diagram items (Ctrl+D)")
-        duplicate.clicked.connect(self.scene.duplicate_selected)
-        fit = QPushButton("Fit")
-        fit.setToolTip("Fit all diagram items in view")
-        fit.clicked.connect(self.canvas.fit_all)
-        zoom_out = QPushButton("−")
-        zoom_out.setToolTip("Zoom out")
-        zoom_out.clicked.connect(lambda: self.canvas.scale(0.85, 0.85))
-        zoom_in = QPushButton("+")
-        zoom_in.setToolTip("Zoom in")
-        zoom_in.clicked.connect(lambda: self.canvas.scale(1.15, 1.15))
-        delete = QPushButton("Delete")
-        delete.setToolTip("Delete selected diagram items (Delete)")
-        delete.clicked.connect(self.scene.delete_selected)
-        for button in (duplicate, fit, zoom_out, zoom_in, delete):
+        self.duplicate_button = QPushButton()
+        self.duplicate_button.clicked.connect(self.scene.duplicate_selected)
+        self.fit_button = QPushButton()
+        self.fit_button.clicked.connect(self.canvas.fit_all)
+        self.zoom_out_button = QPushButton("−")
+        self.zoom_out_button.clicked.connect(lambda: self.canvas.scale(0.85, 0.85))
+        self.zoom_in_button = QPushButton("+")
+        self.zoom_in_button.clicked.connect(lambda: self.canvas.scale(1.15, 1.15))
+        self.delete_button = QPushButton()
+        self.delete_button.clicked.connect(self.scene.delete_selected)
+        for button in (self.duplicate_button, self.fit_button, self.zoom_out_button, self.zoom_in_button, self.delete_button):
             bar.addWidget(button)
 
-        hint = QLabel(
-            "Square/Round/Ellipse/Diamond: basılı tutup sürükleyerek istediğin boyutta çiz. Select: seçili şeklin 8 tutamacından yeniden boyutlandır. Connect: bir öğeden diğerine rota çiz. Orta mouse: canvas taşı."
-        )
-        hint.setObjectName("diagramHint")
-        hint.setContentsMargins(8, 0, 8, 2)
+        self.hint = QLabel()
+        self.hint.setObjectName("diagramHint")
+        self.hint.setContentsMargins(8, 0, 8, 2)
+        self.hint.setWordWrap(True)
 
         root.addLayout(bar)
-        root.addWidget(hint)
+        root.addWidget(self.hint)
         root.addWidget(self.canvas, 1)
+        self.retranslate_ui()
         self.set_mode("shape:square")
+
+    def retranslate_ui(self) -> None:
+        app = QApplication.instance()
+        tr = bool(app is not None and app.property("devnestLanguage") == "tr")
+        for mode, en_label, tr_label, en_tip, tr_tip in self._tool_specs:
+            button = self._mode_buttons.get(mode)
+            if button is not None:
+                button.setText(tr_label if tr else en_label)
+                button.setToolTip(tr_tip if tr else en_tip)
+        self.duplicate_button.setText("Çoğalt" if tr else "Duplicate")
+        self.duplicate_button.setToolTip("Seçili diyagram öğelerini çoğalt (Ctrl+D)" if tr else "Duplicate selected diagram items (Ctrl+D)")
+        self.fit_button.setText("Sığdır" if tr else "Fit")
+        self.fit_button.setToolTip("Tüm diyagram öğelerini görünür alana sığdır" if tr else "Fit all diagram items in view")
+        self.zoom_out_button.setToolTip("Uzaklaştır" if tr else "Zoom out")
+        self.zoom_in_button.setToolTip("Yakınlaştır" if tr else "Zoom in")
+        self.delete_button.setText("Sil" if tr else "Delete")
+        self.delete_button.setToolTip("Seçili diyagram öğelerini sil (Delete)" if tr else "Delete selected diagram items (Delete)")
+        self.hint.setText(
+            "Kare/Yuvarlak/Elips/Elmas: basılı tutup sürükleyerek istediğiniz boyutta çizin. Seç: 8 tutamaçtan yeniden boyutlandırın. Bağla: öğeler arasında rota çizin. Orta fare: tuvali taşıyın."
+            if tr else
+            "Square/Round/Ellipse/Diamond: press and drag to draw at the size you want. Select: resize with the 8 handles. Connect: draw a route between items. Middle mouse: pan the canvas."
+        )
 
     def set_mode(self, mode: str) -> None:
         self.scene.set_mode(mode)

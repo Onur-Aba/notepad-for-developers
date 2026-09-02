@@ -264,6 +264,7 @@ class DecisionsPage(QWidget):
         self.set_review_status(ReviewStatus.NOT_REVIEWED, has_links=False)
 
     def retranslate_ui(self) -> None:
+        self.editor.retranslate_ui()
         self.page_title.setText(self.i18n.t("decision.title"))
         self.page_subtitle.setText(self.i18n.t("decision.subtitle"))
         self.new_button.setText(self.i18n.t("decision.new"))

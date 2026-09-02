@@ -80,7 +80,7 @@ from app.services.txt_codec import (
     write_utf8_text,
 )
 from app.settings import AppPreferences, SettingsManager
-from app.themes.theme_manager import THEME_OPTIONS, ThemeManager
+from app.themes.theme_manager import THEME_OPTIONS, UI_MODE_OPTIONS, ThemeManager
 from app.widgets.diagram_view import DiagramView
 from app.widgets.note_editor import NoteEditor
 from app.widgets.sidebar import Sidebar
@@ -374,11 +374,16 @@ class MainWindow(QMainWindow):
         language_index = self.language_combo.findData(self.i18n.language)
         self.language_combo.setCurrentIndex(max(0, language_index))
         self.language_combo.currentIndexChanged.connect(self._language_quick_selected)
+        self.ui_mode_button = QPushButton()
+        self.ui_mode_button.setObjectName("uiModeQuickButton")
+        self.ui_mode_button.setMinimumWidth(86)
+        self.ui_mode_button.clicked.connect(self._toggle_ui_mode)
         top_layout.addWidget(self.project_selector_label)
         top_layout.addWidget(self.project_selector)
         top_layout.addStretch(1)
         top_layout.addWidget(self.global_search, 2)
         top_layout.addWidget(self.language_combo)
+        top_layout.addWidget(self.ui_mode_button)
         top_layout.addWidget(self.notification_button)
         top_layout.addWidget(self.github_indicator)
 
@@ -839,6 +844,8 @@ class MainWindow(QMainWindow):
             self.language_combo.setCurrentIndex(index)
             self.language_combo.blockSignals(False)
         self._retranslate_shell()
+        self.editor.retranslate_ui()
+        self.diagram.retranslate_ui()
         # Re-render project-scoped information so dynamic labels also switch language.
         self.project_detail_page.set_project(self.current_project_id)
         self.decisions_page.refresh(self.decisions_page.current_decision_id)
@@ -861,6 +868,7 @@ class MainWindow(QMainWindow):
         self.global_search.setPlaceholderText(self.i18n.t("top.search"))
         self.global_search.setToolTip(self.i18n.t("top.search_tip"))
         self.language_combo.setToolTip(self.i18n.t("top.language_tip"))
+        self._update_ui_mode_button()
         self.note_linked_label.setText(self.i18n.t("notes.linked_resources"))
         self.note_link_button.setText(self.i18n.t("notes.link"))
         self.note_view_changes_button.setText(self.i18n.t("notes.view_changes"))
@@ -1400,7 +1408,7 @@ class MainWindow(QMainWindow):
         self.numbered_action.blockSignals(False)
 
     def set_theme(self, theme: str, persist: bool = True) -> None:
-        self.theme_manager.apply(theme)
+        self.theme_manager.apply(theme, getattr(self.preferences, "ui_mode", "classic"))
         resolved_theme = self.theme_manager.current_theme
         spec = self.theme_manager.current_spec
         self.diagram.set_theme(spec.diagram_palette())
@@ -1429,6 +1437,51 @@ class MainWindow(QMainWindow):
         if getattr(self, "_settings_dialog", None) is not None:
             self._settings_dialog.sync_from_preferences()
         self._update_top_right_button()
+        # Startup can restore Modern mode before the shell is retranslated again.
+        # Refresh mode-aware navigation/notification labels immediately so the
+        # persisted interface style is visually consistent from the first frame.
+        self._update_ui_mode_button()
+
+    def set_ui_mode(self, mode: str, persist: bool = True) -> None:
+        normalized = str(mode or "classic").lower().strip()
+        valid = {value for _label, value in UI_MODE_OPTIONS}
+        if normalized not in valid:
+            normalized = "classic"
+        if getattr(self.preferences, "ui_mode", "classic") == normalized and self.theme_manager.current_mode == normalized:
+            self._update_ui_mode_button()
+            return
+        self.preferences.ui_mode = normalized
+        # Reapply the active color theme with the new component/layout skin.
+        self.set_theme(self.preferences.theme, persist=False)
+        if persist:
+            self.settings.set_value("appearance/ui_mode", normalized)
+            self.settings.sync()
+        if getattr(self, "_settings_dialog", None) is not None:
+            self._settings_dialog.sync_from_preferences()
+        self._update_ui_mode_button()
+
+    def _toggle_ui_mode(self) -> None:
+        current = getattr(self.preferences, "ui_mode", "classic")
+        self.set_ui_mode("modern" if current == "classic" else "classic")
+
+    def _update_ui_mode_button(self) -> None:
+        if not hasattr(self, "ui_mode_button"):
+            return
+        modern = getattr(self.preferences, "ui_mode", "classic") == "modern"
+        tr = self.i18n.language == "tr"
+        self.ui_mode_button.setText(("Modern" if modern else "Klasik") if tr else ("Modern" if modern else "Classic"))
+        self.ui_mode_button.setToolTip(
+            ("Modern arayüz etkin. Klasik görünüme geçmek için tıklayın." if modern else "Klasik arayüz etkin. Modern görünüme geçmek için tıklayın.")
+            if tr else
+            ("Modern interface is active. Click to switch to Classic." if modern else "Classic interface is active. Click to switch to Modern.")
+        )
+        self.ui_mode_button.setProperty("modern", modern)
+        self.ui_mode_button.style().unpolish(self.ui_mode_button)
+        self.ui_mode_button.style().polish(self.ui_mode_button)
+        if hasattr(self, "global_navigation"):
+            self.global_navigation.retranslate_ui()
+        if hasattr(self, "notification_button"):
+            self._refresh_notification_button()
 
     def _theme_combo_changed(self, _index: int) -> None:
         theme = self.theme_combo.currentData()
@@ -1780,7 +1833,12 @@ class MainWindow(QMainWindow):
 
     def _refresh_notification_button(self) -> None:
         count = self.database.unread_notification_count()
-        self.notification_button.setText(f"🔔 {count}" if count else "🔔")
+        modern = getattr(self.preferences, "ui_mode", "classic") == "modern"
+        if modern:
+            base = "Bildirimler" if self.i18n.language == "tr" else "Notifications"
+            self.notification_button.setText(f"{base} · {count}" if count else base)
+        else:
+            self.notification_button.setText(f"🔔 {count}" if count else "🔔")
         self.notification_button.setToolTip(
             f"{count} okunmamış uygulama bildirimi" if self.i18n.language == "tr" else f"{count} unread in-app notification(s)"
         )
@@ -2038,6 +2096,13 @@ class MainWindow(QMainWindow):
             action.setCheckable(True)
             action.setChecked(value == self.theme_manager.current_theme)
             action.triggered.connect(lambda _checked=False, theme=value: self.set_theme(theme))
+        mode_menu = menu.addMenu("Arayüz stili" if tr else "Interface style")
+        for label, value in UI_MODE_OPTIONS:
+            display = ("Klasik" if value == "classic" else "Modern") if tr else label
+            action = mode_menu.addAction(display)
+            action.setCheckable(True)
+            action.setChecked(value == getattr(self.preferences, "ui_mode", "classic"))
+            action.triggered.connect(lambda _checked=False, mode=value: self.set_ui_mode(mode))
         menu.addSeparator()
         github_action = menu.addAction("GitHub bağlantısını yönet" if tr else "Manage GitHub connection")
         github_action.triggered.connect(lambda: self._navigate("github"))

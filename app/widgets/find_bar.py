@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 
 
 class FindLineEdit(QLineEdit):
@@ -26,6 +26,8 @@ class EditorFindBar(QWidget):
         self.setObjectName("editorFindBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._result_count = 0
+        self._active_index: int | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(7, 6, 7, 6)
@@ -74,6 +76,21 @@ class EditorFindBar(QWidget):
         self.close_button.setToolTip("Close search (Esc)")
         self.close_button.clicked.connect(self.closeRequested)
         layout.addWidget(self.close_button)
+        self.retranslate_ui()
+
+    def _is_tr(self) -> bool:
+        app = QApplication.instance()
+        return bool(app is not None and app.property("devnestLanguage") == "tr")
+
+    def retranslate_ui(self) -> None:
+        tr = self._is_tr()
+        self.query_edit.setPlaceholderText("Notta bul…" if tr else "Find in note…")
+        self.down_checkbox.setText("↓ Aşağı" if tr else "↓ Down")
+        self.up_checkbox.setText("↑ Yukarı" if tr else "↑ Up")
+        self.find_button.setText("Bul" if tr else "Find")
+        self.find_button.setToolTip("Seçili yönde sonraki eşleşmeyi bul (Enter)" if tr else "Find the next match in the selected direction (Enter)")
+        self.close_button.setToolTip("Aramayı kapat (Esc)" if tr else "Close search (Esc)")
+        self.set_result_count(self._result_count, self._active_index)
 
     def direction(self) -> str:
         return "up" if self.up_checkbox.isChecked() else "down"
@@ -87,10 +104,12 @@ class EditorFindBar(QWidget):
             self.query_edit.selectAll()
 
     def set_result_count(self, count: int, active_index: int | None = None) -> None:
+        self._result_count = max(0, int(count))
+        self._active_index = active_index
         if count <= 0:
-            self.result_label.setText("0 matches")
+            self.result_label.setText("0 eşleşme" if self._is_tr() else "0 matches")
         elif active_index is None:
-            self.result_label.setText(f"{count} matches")
+            self.result_label.setText((f"{count} eşleşme" if self._is_tr() else f"{count} matches"))
         else:
             self.result_label.setText(f"{active_index + 1} / {count}")
 

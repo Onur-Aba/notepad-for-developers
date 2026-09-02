@@ -98,21 +98,22 @@ class GitHubPage(QWidget):
         self.device_panel = QFrame()
         self.device_panel.setObjectName("projectCard")
         device_layout = QVBoxLayout(self.device_panel)
-        device_layout.addWidget(QLabel("Open GitHub and authorize DevNest"))
+        self.device_heading = QLabel()
+        device_layout.addWidget(self.device_heading)
         self.device_code = QLabel("—")
         self.device_code.setObjectName("deviceCode")
         self.device_url = QLineEdit()
         self.device_url.setReadOnly(True)
         row = QHBoxLayout()
-        copy = QPushButton("Copy Code")
-        copy.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.device_code.text()))
-        open_browser = QPushButton("Open GitHub")
-        open_browser.clicked.connect(lambda: self.browser.open(self.device_url.text()))
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.cancel_connection)
-        row.addWidget(copy)
-        row.addWidget(open_browser)
-        row.addWidget(cancel)
+        self.device_copy_button = QPushButton()
+        self.device_copy_button.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.device_code.text()))
+        self.device_open_button = QPushButton()
+        self.device_open_button.clicked.connect(lambda: self.browser.open(self.device_url.text()))
+        self.device_cancel_button = QPushButton()
+        self.device_cancel_button.clicked.connect(self.cancel_connection)
+        row.addWidget(self.device_copy_button)
+        row.addWidget(self.device_open_button)
+        row.addWidget(self.device_cancel_button)
         row.addStretch(1)
         self.device_status = QLabel("Waiting for authorization…")
         device_layout.addWidget(self.device_code)
@@ -169,6 +170,13 @@ class GitHubPage(QWidget):
         self.refresh_button.setToolTip(self.i18n.t("tip.github.refresh"))
         self.manage_button.setToolTip(self.i18n.t("tip.github.manage"))
         self.disconnect_button.setToolTip(self.i18n.t("tip.github.disconnect"))
+        tr = self.i18n.language == "tr"
+        self.device_heading.setText("GitHub'ı açın ve DevNest'e izin verin" if tr else "Open GitHub and authorize DevNest")
+        self.device_copy_button.setText("Kodu kopyala" if tr else "Copy code")
+        self.device_open_button.setText("GitHub'ı aç" if tr else "Open GitHub")
+        self.device_cancel_button.setText("İptal" if tr else "Cancel")
+        if self.device_panel.isVisible() and not self.device_status.text().strip():
+            self.device_status.setText("Yetkilendirme bekleniyor…" if tr else "Waiting for authorization…")
         self.repos_label.setText(self.i18n.t("github.repos"))
         self.search.setPlaceholderText(self.i18n.t("github.search"))
         self.sort_notice.setText(self.i18n.t("github.sort_notice"))
@@ -244,7 +252,7 @@ class GitHubPage(QWidget):
             )
             return
         self.connect_button.setEnabled(False)
-        self.state_text.setText("Starting GitHub Device Flow…")
+        self.state_text.setText("GitHub güvenli bağlantısı başlatılıyor…" if self.i18n.language == "tr" else "Starting GitHub Device Flow…")
         self.runner.submit(self.auth.request_device_code, self._device_ready, self._network_error,
                            lambda: self.connect_button.setEnabled(True))
 
@@ -254,7 +262,10 @@ class GitHubPage(QWidget):
         self.device_url.setText(device.verification_uri)
         QGuiApplication.clipboard().setText(device.user_code)
         opened = self.browser.open(device.verification_uri)
-        self.device_status.setText("Waiting for authorization…" + ("" if opened else " Browser could not be opened automatically; use the URL above."))
+        if self.i18n.language == "tr":
+            self.device_status.setText("Yetkilendirme bekleniyor…" + ("" if opened else " Tarayıcı otomatik açılamadı; yukarıdaki adresi kullanın."))
+        else:
+            self.device_status.setText("Waiting for authorization…" + ("" if opened else " Browser could not be opened automatically; use the URL above."))
         self.cancel_event = threading.Event()
         self.runner.submit(
             lambda: self.auth.poll_until_authorized(device, self.cancel_event),
@@ -263,7 +274,7 @@ class GitHubPage(QWidget):
         )
 
     def _authorization_complete(self) -> None:
-        self.device_status.setText("✓ GitHub authorization complete")
+        self.device_status.setText("✓ GitHub yetkilendirmesi tamamlandı" if self.i18n.language == "tr" else "✓ GitHub authorization complete")
         self.device_panel.hide()
         self._awaiting_installation = True
         self._install_page_opened = False
@@ -272,7 +283,7 @@ class GitHubPage(QWidget):
 
     def _authorization_failed(self, exc: Exception) -> None:
         if self.cancel_event and self.cancel_event.is_set():
-            self.device_status.setText("Connection cancelled.")
+            self.device_status.setText("Bağlantı iptal edildi." if self.i18n.language == "tr" else "Connection cancelled.")
         else:
             self.device_status.setText(str(exc))
         self.update_connection_state()
@@ -281,7 +292,7 @@ class GitHubPage(QWidget):
         if self.cancel_event:
             self.cancel_event.set()
         self.device_panel.hide()
-        self.state_text.setText("GitHub connection cancelled. Local DevNest features remain available.")
+        self.state_text.setText("GitHub bağlantısı iptal edildi. Yerel DevNest özellikleri kullanılmaya devam eder." if self.i18n.language == "tr" else "GitHub connection cancelled. Local DevNest features remain available.")
 
     def _load_remote_data(self) -> dict[str, Any]:
         token = self.auth.get_valid_access_token()
@@ -314,16 +325,16 @@ class GitHubPage(QWidget):
             return
         self._syncing = True
         self.refresh_button.setEnabled(False)
-        self.state_text.setText("Refreshing read-only GitHub metadata…")
+        self.state_text.setText("Salt okunur GitHub bilgileri yenileniyor…" if self.i18n.language == "tr" else "Refreshing read-only GitHub metadata…")
         self.runner.submit(self._load_remote_data, self._sync_complete, self._network_error, self._sync_finished)
 
     def _sync_complete(self, data: dict[str, Any]) -> None:
         user = data["user"]
         if user.get("id") and user.get("login"):
             self.database.save_github_account(int(user["id"]), str(user["login"]), user.get("avatar_url"))
-            self.state_title.setText(f"@{user['login']} · Connected")
+            self.state_title.setText(f"@{user['login']} · " + ("Bağlı" if self.i18n.language == "tr" else "Connected"))
         else:
-            self.state_title.setText("GitHub Connected")
+            self.state_title.setText("GitHub Bağlı" if self.i18n.language == "tr" else "GitHub Connected")
         self._set_connected_controls(True, True)
         installations: list[GitHubInstallation] = data["installations"]
         self.database.save_github_installations(installations)
@@ -347,29 +358,34 @@ class GitHubPage(QWidget):
             self._awaiting_installation = False
             self.installation_poll_timer.stop()
             owners = ", ".join(f"{installation.account_login} ({installation.account_type})" for installation in installations[:4])
+            tr = self.i18n.language == "tr"
             if data["repositories"]:
                 self.state_text.setText(
-                    f"✓ GitHub connected · {len(data['repositories'])} repositories available · Read-only\n"
-                    f"Installations: {owners}"
+                    (f"✓ GitHub bağlı · {len(data['repositories'])} depo erişilebilir · Salt okunur\nKurulumlar: {owners}")
+                    if tr else
+                    (f"✓ GitHub connected · {len(data['repositories'])} repositories available · Read-only\nInstallations: {owners}")
                 )
             elif repository_errors:
                 self.state_text.setText(
-                    "GitHub App installation was found, but repository access could not be read. "
-                    "Open Manage Access and verify Metadata/Contents/Pull requests are Read-only and repositories are selected.\n"
+                    (("GitHub App kurulumu bulundu ancak repository erişimi okunamadı. Erişimi Yönet'i açıp Metadata/Contents/Pull requests izinlerinin salt okunur olduğunu ve repository seçildiğini doğrulayın.\n") if tr else
+                     ("GitHub App installation was found, but repository access could not be read. Open Manage Access and verify Metadata/Contents/Pull requests are Read-only and repositories are selected.\n"))
                     + "\n".join(repository_errors[:3])
                 )
             else:
                 self.state_text.setText(
-                    "GitHub App installation was found, but it currently exposes 0 repositories to DevNest. "
-                    "Open Manage Access and select at least one repository."
+                    "GitHub App kurulumu bulundu ancak şu anda DevNest'e 0 repository gösteriyor. Erişimi Yönet'i açıp en az bir repository seçin."
+                    if tr else
+                    "GitHub App installation was found, but it currently exposes 0 repositories to DevNest. Open Manage Access and select at least one repository."
                 )
-            self.manage_button.setText("Manage Access")
+            self.manage_button.setText("Erişimi Yönet" if tr else "Manage Access")
         else:
+            tr = self.i18n.language == "tr"
             self.state_text.setText(
-                "✓ GitHub authorization is complete. One more GitHub step is required: install the DevNest GitHub App "
-                "and select the repositories it may read. This page will update automatically after installation."
+                "✓ GitHub yetkilendirmesi tamamlandı. Bir adım daha gerekli: DevNest GitHub App'i kurun ve okuyabileceği repository'leri seçin. Kurulumdan sonra bu sayfa otomatik güncellenecek."
+                if tr else
+                "✓ GitHub authorization is complete. One more GitHub step is required: install the DevNest GitHub App and select the repositories it may read. This page will update automatically after installation."
             )
-            self.manage_button.setText("Install GitHub App")
+            self.manage_button.setText("GitHub App'i Kur" if tr else "Install GitHub App")
             if self._awaiting_installation:
                 self._begin_installation_wait()
         self.render_cached()
@@ -382,9 +398,12 @@ class GitHubPage(QWidget):
                 self.browser.open(self.config.install_url)
                 self._install_page_opened = True
             else:
-                self.state_text.setText(
-                    self.state_text.text() + "\nGitHub App slug is not configured, so open GitHub → Settings → Applications → GitHub Apps and install DevNest manually."
+                extra = (
+                    "\nGitHub App slug ayarlı değil. GitHub → Settings → Applications → GitHub Apps yolunu açıp DevNest'i manuel kurun."
+                    if self.i18n.language == "tr" else
+                    "\nGitHub App slug is not configured, so open GitHub → Settings → Applications → GitHub Apps and install DevNest manually."
                 )
+                self.state_text.setText(self.state_text.text() + extra)
         if not self.installation_poll_timer.isActive():
             self.installation_poll_timer.start()
 
@@ -395,8 +414,9 @@ class GitHubPage(QWidget):
         if self._installation_poll_attempts > 50:  # ~5 minutes at a 6 second interval
             self.installation_poll_timer.stop()
             self.state_text.setText(
-                "GitHub authorization is saved. DevNest is still waiting for a GitHub App installation. "
-                "After installing/selecting repositories, press Refresh; no reconnection is required."
+                "GitHub yetkilendirmesi kaydedildi. DevNest hâlâ GitHub App kurulumunu bekliyor. Kurulumdan/repository seçiminden sonra Yenile'ye basın; yeniden bağlanmanız gerekmez."
+                if self.i18n.language == "tr" else
+                "GitHub authorization is saved. DevNest is still waiting for a GitHub App installation. After installing/selecting repositories, press Refresh; no reconnection is required."
             )
             return
         self._installation_poll_in_progress = True
@@ -411,12 +431,13 @@ class GitHubPage(QWidget):
         if installations:
             self.installation_poll_timer.stop()
             self._awaiting_installation = False
-            self.state_text.setText("✓ GitHub App installation detected. Loading repositories…")
+            self.state_text.setText("✓ GitHub App kurulumu algılandı. Repository'ler yükleniyor…" if self.i18n.language == "tr" else "✓ GitHub App installation detected. Loading repositories…")
             self.refresh_from_github()
         else:
             self.state_text.setText(
-                "GitHub authorization is saved. Waiting for GitHub App installation/repository selection… "
-                "You do not need to restart DevNest."
+                "GitHub yetkilendirmesi kaydedildi. GitHub App kurulumu/repository seçimi bekleniyor… DevNest'i yeniden başlatmanız gerekmez."
+                if self.i18n.language == "tr" else
+                "GitHub authorization is saved. Waiting for GitHub App installation/repository selection… You do not need to restart DevNest."
             )
 
     def _installation_poll_error(self, exc: Exception) -> None:
