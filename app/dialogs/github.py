@@ -5,11 +5,16 @@ import webbrowser
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QApplication, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton, QVBoxLayout,
 )
 
 from app.services.github_client import GitHubAuthorizationPending, GitHubClient, GitHubError, GitHubSlowDown
+
+
+def _is_tr() -> bool:
+    app = QApplication.instance()
+    return bool(app is not None and app.property("devnestLanguage") == "tr")
 
 
 class GitHubConnectDialog(QDialog):
@@ -18,18 +23,23 @@ class GitHubConnectDialog(QDialog):
         self.client = client
         self.device = None
         self.deadline = 0.0
-        self.setWindowTitle("Connect GitHub")
+        tr = _is_tr()
+        self.setWindowTitle("GitHub'a Bağlan" if tr else "Connect GitHub")
         self.setMinimumWidth(480)
         root = QVBoxLayout(self)
-        intro = QLabel("DevNest uses GitHub Device Flow. Your browser handles authorization; DevNest never asks for your GitHub password.")
+        intro = QLabel(
+            "DevNest GitHub Device Flow kullanır. Yetkilendirme tarayıcınızda yapılır; DevNest GitHub parolanızı asla istemez."
+            if tr else
+            "DevNest uses GitHub Device Flow. Your browser handles authorization; DevNest never asks for your GitHub password."
+        )
         intro.setWordWrap(True); root.addWidget(intro)
         self.code = QLineEdit(); self.code.setReadOnly(True); self.code.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.code.setStyleSheet("font-size: 22px; font-weight: 700; letter-spacing: 2px; padding: 8px;")
         root.addWidget(self.code)
-        row = QHBoxLayout(); self.open_button = QPushButton("Open GitHub"); self.open_button.clicked.connect(self._open)
-        self.start_button = QPushButton("Generate code"); self.start_button.clicked.connect(self.start)
+        row = QHBoxLayout(); self.open_button = QPushButton("GitHub'ı aç" if tr else "Open GitHub"); self.open_button.clicked.connect(self._open)
+        self.start_button = QPushButton("Kod oluştur" if tr else "Generate code"); self.start_button.clicked.connect(self.start)
         row.addWidget(self.start_button); row.addWidget(self.open_button); root.addLayout(row)
-        self.status = QLabel("Generate a code to begin."); self.status.setWordWrap(True); root.addWidget(self.status)
+        self.status = QLabel("Başlamak için bir kod oluşturun." if tr else "Generate a code to begin."); self.status.setWordWrap(True); root.addWidget(self.status)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel); buttons.rejected.connect(self.reject); root.addWidget(buttons)
         self.timer = QTimer(self); self.timer.timeout.connect(self._poll)
         QTimer.singleShot(0, self.start)
@@ -37,7 +47,10 @@ class GitHubConnectDialog(QDialog):
     def start(self) -> None:
         try:
             self.device = self.client.start_device_flow(); self.deadline = time.monotonic() + self.device.expires_in
-            self.code.setText(self.device.user_code); self.status.setText("Enter this code on GitHub, then approve DevNest.")
+            self.code.setText(self.device.user_code); self.status.setText(
+                "Bu kodu GitHub'da girin ve ardından DevNest'e izin verin." if _is_tr()
+                else "Enter this code on GitHub, then approve DevNest."
+            )
             self.timer.start(max(5, self.device.interval) * 1000)
         except GitHubError as exc:
             self.status.setText(str(exc)); self.timer.stop()
@@ -48,13 +61,14 @@ class GitHubConnectDialog(QDialog):
     def _poll(self) -> None:
         if not self.device: return
         if time.monotonic() >= self.deadline:
-            self.timer.stop(); self.status.setText("Code expired. Generate a new code."); return
+            self.timer.stop(); self.status.setText("Kodun süresi doldu. Yeni bir kod oluşturun." if _is_tr() else "Code expired. Generate a new code."); return
         try:
             self.client.poll_device_flow(self.device.device_code)
             user = self.client.authenticated_user(); self.timer.stop()
-            self.status.setText(f"Connected as @{user.get('login', 'GitHub user')}"); QTimer.singleShot(400, self.accept)
+            account = user.get("login", "GitHub kullanıcısı" if _is_tr() else "GitHub user")
+            self.status.setText((f"@{account} olarak bağlandı" if _is_tr() else f"Connected as @{account}")); QTimer.singleShot(400, self.accept)
         except GitHubAuthorizationPending:
-            self.status.setText("Waiting for GitHub authorization…")
+            self.status.setText("GitHub yetkilendirmesi bekleniyor…" if _is_tr() else "Waiting for GitHub authorization…")
         except GitHubSlowDown:
             self.timer.setInterval(self.timer.interval() + 5000)
         except GitHubError as exc:
@@ -65,13 +79,14 @@ class GitHubRepositoryDialog(QDialog):
     def __init__(self, client: GitHubClient, parent=None, install_url: str = "") -> None:
         super().__init__(parent)
         self.client = client; self.repositories: list[dict[str, object]] = []
-        self.setWindowTitle("GitHub Repositories"); self.resize(700, 560)
+        tr = _is_tr()
+        self.setWindowTitle("GitHub Depoları" if tr else "GitHub Repositories"); self.resize(700, 560)
         root = QVBoxLayout(self)
-        top = QHBoxLayout(); self.search = QLineEdit(); self.search.setPlaceholderText("Search repositories…")
-        refresh = QPushButton("Refresh"); refresh.clicked.connect(self.load)
+        top = QHBoxLayout(); self.search = QLineEdit(); self.search.setPlaceholderText("Depolarda ara…" if tr else "Search repositories…")
+        refresh = QPushButton("Yenile" if tr else "Refresh"); refresh.clicked.connect(self.load)
         top.addWidget(self.search, 1); top.addWidget(refresh)
         if install_url:
-            manage = QPushButton("Manage GitHub access"); manage.clicked.connect(lambda: webbrowser.open(install_url)); top.addWidget(manage)
+            manage = QPushButton("GitHub erişimini yönet" if tr else "Manage GitHub access"); manage.clicked.connect(lambda: webbrowser.open(install_url)); top.addWidget(manage)
         root.addLayout(top)
         self.list = QListWidget(); self.list.itemDoubleClicked.connect(lambda _item, _column: self.accept()); root.addWidget(self.list, 1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -84,7 +99,11 @@ class GitHubRepositoryDialog(QDialog):
             QMessageBox.warning(self, "GitHub", str(exc)); return
         self._filter(self.search.text())
         if not self.repositories:
-            item = QListWidgetItem("No DevNest GitHub App repositories are available. Install/manage the app access, then Refresh.")
+            item = QListWidgetItem(
+                "DevNest GitHub App için erişilebilir depo yok. Uygulama erişimini kurun/yönetin ve ardından Yenile'ye basın."
+                if _is_tr() else
+                "No DevNest GitHub App repositories are available. Install/manage the app access, then Refresh."
+            )
             item.setFlags(Qt.ItemFlag.NoItemFlags); self.list.addItem(item)
 
     def _filter(self, text: str) -> None:
@@ -92,7 +111,7 @@ class GitHubRepositoryDialog(QDialog):
         for repo in self.repositories:
             full = str(repo.get("full_name", ""))
             if term and term not in full.casefold(): continue
-            privacy = "private" if repo.get("private") else "public"
+            privacy = (("özel" if _is_tr() else "private") if repo.get("private") else ("herkese açık" if _is_tr() else "public"))
             item = QListWidgetItem(f"{full}   ·   {privacy}   ·   {repo.get('default_branch', 'main')}")
             item.setData(Qt.ItemDataRole.UserRole, repo); self.list.addItem(item)
 

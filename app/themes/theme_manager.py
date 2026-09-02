@@ -250,6 +250,44 @@ THEME_OPTIONS: tuple[tuple[str, str], ...] = (
     ("Cool Mist", "light_cool"),
 )
 
+UI_MODE_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("Classic", "classic"),
+    ("Modern", "modern"),
+)
+
+
+def _mix_hex(foreground: str, background: str, amount: float) -> str:
+    """Blend foreground into background by amount (0..1)."""
+    amount = max(0.0, min(1.0, float(amount)))
+    fg = foreground.lstrip("#")
+    bg = background.lstrip("#")
+    if len(fg) != 6 or len(bg) != 6:
+        return foreground
+    out = []
+    for index in (0, 2, 4):
+        f = int(fg[index:index + 2], 16)
+        b = int(bg[index:index + 2], 16)
+        out.append(round(b + (f - b) * amount))
+    return "#" + "".join(f"{value:02x}" for value in out)
+
+
+def _relative_luminance(hex_color: str) -> float:
+    value = hex_color.lstrip("#")
+    if len(value) != 6:
+        return 0.0
+    channels = []
+    for index in (0, 2, 4):
+        channel = int(value[index:index + 2], 16) / 255.0
+        channels.append(channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _contrast_text(background: str) -> str:
+    luminance = _relative_luminance(background)
+    white_ratio = 1.05 / (luminance + 0.05)
+    black_ratio = (luminance + 0.05) / 0.05
+    return "#ffffff" if white_ratio >= black_ratio else "#111318"
+
 
 def _qss(spec: ThemeSpec) -> str:
     return f"""
@@ -534,14 +572,215 @@ QCheckBox {{ spacing: 8px; }}
 """
 
 
+def _modern_qss(spec: ThemeSpec) -> str:
+    """Modern DevNest shell built on the same semantic color ThemeSpec.
+
+    The classic QSS remains the compatibility baseline. Modern mode layers a
+    denser, token-like developer-tool visual system on top, so every existing
+    color theme keeps working without duplicating page logic.
+    """
+    accent_soft = _mix_hex(spec.accent, spec.surface, 0.18 if not spec.dark else 0.24)
+    accent_soft_hover = _mix_hex(spec.accent, spec.surface, 0.28 if not spec.dark else 0.34)
+    elevated = _mix_hex(spec.text, spec.surface, 0.025 if spec.dark else 0.012)
+    input_bg = _mix_hex(spec.text, spec.editor, 0.018 if spec.dark else 0.008)
+    focus = spec.accent
+    primary_fg = _contrast_text(spec.accent)
+    danger_bg = "#b42318" if not spec.dark else "#d0443e"
+    danger_fg = _contrast_text(danger_bg)
+    return _qss(spec) + f"""
+
+/* DevNest Modern UI mode -------------------------------------------------- */
+QWidget {{
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}}
+QMainWindow, QDialog {{ background: {spec.window}; }}
+QWidget#globalNavigation {{
+    background: {spec.surface};
+    border-right: 1px solid {spec.border};
+}}
+QLabel#productBrand {{ font-size: 22px; font-weight: 800; letter-spacing: -0.2px; }}
+QLabel#productTagline {{ color: {spec.muted}; font-size: 11px; padding-right: 4px; }}
+QLabel#navSectionLabel {{
+    color: {spec.muted}; font-size: 9px; font-weight: 800; letter-spacing: 0.7px;
+    padding: 8px 10px 4px 10px;
+}}
+QPushButton#navButton {{
+    min-height: 24px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    padding: 8px 11px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 560;
+    background: transparent;
+}}
+QPushButton#navButton:hover {{ background: {spec.hover}; border-color: {spec.border}; }}
+QPushButton#navButton:checked {{
+    color: {spec.text};
+    background: {accent_soft};
+    border-color: {accent_soft_hover};
+    font-weight: 720;
+}}
+QPushButton#navButton:focus {{ border: 2px solid {focus}; padding: 7px 10px; }}
+QPushButton#navTrashButton {{
+    min-height: 34px; border-radius: 10px; padding: 7px 11px;
+    background: transparent; border: 1px solid {spec.border}; text-align: left;
+}}
+QPushButton#navTrashButton:hover {{ background: {spec.hover}; }}
+QLabel#navFooter {{ color: {spec.muted}; font-size: 9px; line-height: 1.35; padding: 7px 4px 2px 4px; }}
+
+QWidget#productTopBar {{
+    min-height: 48px;
+    background: {spec.surface};
+    border-bottom: 1px solid {spec.border};
+}}
+QLabel#topBarLabel {{ color: {spec.muted}; font-size: 10px; font-weight: 700; }}
+QComboBox#projectSelector, QComboBox#languageQuickSelect {{
+    min-height: 32px; border-radius: 9px; background: {input_bg};
+}}
+QPushButton#uiModeQuickButton {{
+    min-height: 32px; padding: 5px 10px; border-radius: 9px;
+    background: {accent_soft}; border: 1px solid {accent_soft_hover}; font-weight: 700;
+}}
+QPushButton#uiModeQuickButton:hover {{ background: {accent_soft_hover}; }}
+QPushButton#connectivityIndicator {{ min-height: 32px; border-radius: 9px; padding: 5px 10px; }}
+
+QToolBar {{
+    background: {spec.surface}; border: 0; border-bottom: 1px solid {spec.border};
+    spacing: 3px; padding: 5px 8px;
+}}
+QToolButton {{
+    min-height: 26px; border: 1px solid transparent; border-radius: 8px;
+    padding: 5px 8px; background: transparent;
+}}
+QToolButton:hover {{ background: {spec.hover}; border-color: {spec.border}; }}
+QToolButton:checked {{ background: {accent_soft}; border-color: {accent_soft_hover}; }}
+QToolButton:focus {{ border: 2px solid {focus}; padding: 4px 7px; }}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QListWidget, QTableWidget {{
+    background: {input_bg}; color: {spec.text};
+    border: 1px solid {spec.border}; border-radius: 9px; padding: 7px 9px;
+    selection-background-color: {accent_soft_hover}; selection-color: {spec.text};
+}}
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus,
+QListWidget:focus, QTableWidget:focus {{ border: 2px solid {focus}; padding: 6px 8px; }}
+QComboBox QAbstractItemView {{
+    background: {spec.surface}; color: {spec.text}; border: 1px solid {spec.border};
+    border-radius: 10px; padding: 5px; selection-background-color: {accent_soft};
+}}
+QListWidget::item {{ border-radius: 8px; padding: 6px 7px; margin: 2px 0; }}
+QListWidget::item:hover {{ background: {spec.hover}; }}
+QListWidget::item:selected {{ background: {accent_soft}; color: {spec.text}; }}
+
+QPushButton {{
+    min-height: 30px; background: {elevated}; color: {spec.text};
+    border: 1px solid {spec.border}; border-radius: 9px; padding: 6px 11px;
+    font-weight: 580;
+}}
+QPushButton:hover {{ background: {spec.hover}; border-color: {accent_soft_hover}; }}
+QPushButton:pressed, QPushButton:checked {{ background: {accent_soft}; }}
+QPushButton:focus {{ border: 2px solid {focus}; padding: 5px 10px; }}
+QPushButton:disabled {{ color: {spec.muted}; background: {spec.surface_alt}; border-color: {spec.border}; }}
+QPushButton#primaryButton {{
+    min-height: 32px; background: {spec.accent}; color: {primary_fg};
+    border: 1px solid {spec.accent}; border-radius: 9px; padding: 7px 13px; font-weight: 760;
+}}
+QPushButton#primaryButton:hover {{
+    background: {accent_soft_hover}; color: {spec.text}; border-color: {spec.accent};
+}}
+QPushButton#dangerButton {{
+    min-height: 32px; background: {danger_bg}; color: {danger_fg};
+    border: 1px solid {danger_bg}; border-radius: 9px; padding: 7px 13px; font-weight: 760;
+}}
+
+QLabel#pageTitle {{ font-size: 26px; font-weight: 800; letter-spacing: -0.35px; }}
+QLabel#pageSubtitle {{ color: {spec.muted}; font-size: 12px; line-height: 1.45; }}
+QLabel#sectionTitle {{ font-size: 14px; font-weight: 760; }}
+QLabel#cardTitle {{ font-size: 13px; font-weight: 720; }}
+QLabel#cardLabel, QLabel#fieldLabel, QLabel#contextCaption {{
+    color: {spec.muted}; font-size: 9px; font-weight: 800; letter-spacing: 0.35px;
+}}
+QLabel#metricValue {{ font-size: 29px; font-weight: 820; letter-spacing: -0.5px; }}
+
+QFrame#metricCard, QFrame#projectCard, QFrame#repositoryCard, QFrame#reviewCard,
+QFrame#dashboardPanel, QFrame#secondaryPanel, QFrame#editorPanel, QWidget#inspectorPanel,
+QFrame#dialogCard, QFrame#trashProjectCard {{
+    background: {spec.surface}; border: 1px solid {spec.border}; border-radius: 14px;
+}}
+QFrame#helperBanner, QLabel#helperBanner, QFrame#contextBar, QFrame#resourceSummary {{
+    background: {spec.surface_alt}; border: 1px solid {spec.border}; border-radius: 11px;
+}}
+QLabel#emptyState, QLabel#emptyInlineState {{
+    color: {spec.muted}; padding: 28px; border: 1px dashed {accent_soft_hover}; border-radius: 13px;
+    background: {spec.surface};
+}}
+
+QWidget#noteSidebar {{ background: {spec.surface}; border-right: 1px solid {spec.border}; }}
+QListWidget#noteList::item, QListWidget#decisionList::item {{
+    border: 1px solid transparent; border-radius: 10px; padding: 8px; margin: 2px 0;
+}}
+QListWidget#noteList::item:hover, QListWidget#decisionList::item:hover {{ background: {spec.hover}; border-color: {spec.border}; }}
+QListWidget#noteList::item:selected, QListWidget#decisionList::item:selected {{ background: {accent_soft}; border-color: {accent_soft_hover}; }}
+QLineEdit#documentTitle {{
+    font-size: 19px; font-weight: 760; min-height: 30px; border-radius: 10px;
+    padding: 8px 11px 9px 11px;
+}}
+
+QGroupBox#settingsCard {{
+    background: {spec.surface}; border: 1px solid {spec.border}; border-radius: 14px;
+    margin-top: 16px; font-weight: 760;
+}}
+QGroupBox#settingsCard::title {{
+    subcontrol-origin: margin; subcontrol-position: top left; left: 14px; padding: 0 7px;
+    color: {spec.text}; background: {spec.window};
+}}
+QFrame#uiModeSwitch {{
+    background: {spec.surface_alt}; border: 1px solid {spec.border}; border-radius: 10px;
+}}
+QPushButton#uiModeSegment {{
+    min-height: 30px; border: 0; border-radius: 8px; padding: 5px 14px;
+    background: transparent; color: {spec.muted}; font-weight: 680;
+}}
+QPushButton#uiModeSegment:hover {{ color: {spec.text}; background: {spec.hover}; }}
+QPushButton#uiModeSegment:checked {{ color: {spec.text}; background: {accent_soft}; }}
+QPushButton#settingsCategoryButton {{ min-height: 32px; border-radius: 9px; padding: 8px 11px; }}
+QPushButton#settingsCategoryButton:checked {{ background: {accent_soft}; border: 1px solid {accent_soft_hover}; }}
+QLineEdit#settingsSearchInput {{ min-height: 38px; border-radius: 11px; padding: 8px 12px; }}
+
+QMenu {{ background: {spec.surface}; color: {spec.text}; border: 1px solid {spec.border}; border-radius: 9px; padding: 5px; }}
+QMenu::item {{ padding: 7px 30px 7px 10px; border-radius: 7px; }}
+QMenu::item:selected {{ background: {accent_soft}; }}
+QTabWidget::pane {{ border: 1px solid {spec.border}; border-radius: 10px; background: {spec.editor}; top: -1px; }}
+QTabBar::tab {{
+    background: transparent; color: {spec.muted}; padding: 8px 14px; margin-right: 3px;
+    border: 0; border-bottom: 2px solid transparent;
+}}
+QTabBar::tab:selected {{ color: {spec.text}; background: transparent; border-bottom: 2px solid {spec.accent}; }}
+QTabBar::tab:hover {{ color: {spec.text}; background: {spec.hover}; }}
+
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: {spec.border}; min-height: 30px; border-radius: 5px; }}
+QScrollBar::handle:vertical:hover {{ background: {spec.muted}; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {spec.border}; min-width: 30px; border-radius: 5px; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QToolTip {{
+    background: {spec.surface_alt}; color: {spec.text}; border: 1px solid {spec.border};
+    border-radius: 8px; padding: 7px 9px; font-size: 11px;
+}}
+QStatusBar {{ background: {spec.surface}; border-top: 1px solid {spec.border}; min-height: 22px; }}
+"""
+
+
 class ThemeManager:
     def __init__(self, app: QApplication) -> None:
         self.app = app
         self.current_theme = "system"
+        self.current_mode = "classic"
         self.current_spec = THEME_SPECS["light_clean"]
         self.is_dark = False
 
-    def apply(self, theme: str) -> bool:
+    def apply(self, theme: str, ui_mode: str | None = None) -> bool:
         normalized = theme.lower().strip()
         valid = {value for _, value in THEME_OPTIONS}
         if normalized not in valid:
@@ -552,11 +791,17 @@ class ThemeManager:
                 normalized = "light_clean"
             else:
                 normalized = "system"
+        if ui_mode is not None:
+            requested_mode = str(ui_mode).lower().strip()
+            valid_modes = {value for _, value in UI_MODE_OPTIONS}
+            self.current_mode = requested_mode if requested_mode in valid_modes else "classic"
         self.current_theme = normalized
         resolved = self._resolve_system_theme() if normalized == "system" else normalized
         self.current_spec = THEME_SPECS[resolved]
         self.is_dark = self.current_spec.dark
-        self.app.setStyleSheet(_qss(self.current_spec))
+        self.app.setProperty("devnestUiMode", self.current_mode)
+        stylesheet = _modern_qss(self.current_spec) if self.current_mode == "modern" else _qss(self.current_spec)
+        self.app.setStyleSheet(stylesheet)
         return self.is_dark
 
     def _resolve_system_theme(self) -> str:

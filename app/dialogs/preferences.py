@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from app.constants import MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE_DELAY_MS
 from app.i18n import I18n
 from app.settings import AppPreferences
-from app.themes.theme_manager import THEME_OPTIONS
+from app.themes.theme_manager import THEME_OPTIONS, UI_MODE_OPTIONS
 from app.widgets.no_wheel_spinbox import NoWheelSpinBox
 
 
@@ -86,7 +86,17 @@ class PreferencesDialog(QDialog):
             self.theme.addItem(translated, value)
         index = self.theme.findData(prefs.theme)
         self.theme.setCurrentIndex(max(0, index))
-        appearance_form.addRow("Tema:" if tr else "Theme:", self.theme)
+        appearance_form.addRow("Renk teması:" if tr else "Color theme:", self.theme)
+        self.ui_mode = QComboBox()
+        for label, value in UI_MODE_OPTIONS:
+            self.ui_mode.addItem(("Klasik" if value == "classic" else "Modern") if tr else label, value)
+        mode_index = self.ui_mode.findData(prefs.ui_mode)
+        self.ui_mode.setCurrentIndex(max(0, mode_index))
+        self.ui_mode.setToolTip(
+            "Klasik ve modern arayüz stilleri arasında geçiş yapar. Seçtiğiniz renk teması korunur."
+            if tr else "Switch between Classic and Modern interface styles. Your selected color theme is preserved."
+        )
+        appearance_form.addRow("Arayüz stili:" if tr else "Interface style:", self.ui_mode)
 
         github = QGroupBox("GitHub")
         github_form = QFormLayout(github)
@@ -115,6 +125,7 @@ class PreferencesDialog(QDialog):
     def preferences(self) -> AppPreferences:
         return AppPreferences(
             theme=str(self.theme.currentData()),
+            ui_mode=str(self.ui_mode.currentData() or "classic"),
             autosave_enabled=self.autosave.isChecked(),
             autosave_delay_ms=self.autosave_delay.value(),
             start_with_last_note=self.start_last.isChecked(),

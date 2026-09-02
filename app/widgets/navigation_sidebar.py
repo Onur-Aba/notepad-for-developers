@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from app.i18n import I18n
 
@@ -106,18 +106,22 @@ class NavigationSidebar(QWidget):
         self.workspace_section.setText(self.i18n.t("nav.workspace"))
         self.integrations_section.setText(self.i18n.t("nav.integrations"))
         self.privacy.setText(self.i18n.t("nav.footer"))
-        self.trash_button.setText("🗑  Çöp Kutusu" if self.i18n.language == "tr" else "🗑  Trash")
+        app = QApplication.instance()
+        modern = bool(app is not None and app.property("devnestUiMode") == "modern")
+        trash_prefix = "" if modern else "🗑  "
+        self.trash_button.setText(trash_prefix + ("Çöp Kutusu" if self.i18n.language == "tr" else "Trash"))
         self.trash_button.setToolTip(
             "Tek tek sildiğiniz notları ve tamamını sildiğiniz projeleri burada görürsünüz. Projeler, içindeki not/karar/diyagramlarla birlikte tek paket olarak tutulur."
             if self.i18n.language == "tr" else
             "See individually deleted notes and entire deleted projects here. Projects stay grouped with their notes, decisions and diagrams as one bundle."
         )
+        cloud_prefix = "" if modern else "☁  "
         if self._online_connected:
-            label = (f"☁  Online · {self._online_username}" if self._online_username else "☁  Online")
+            label = (f"{cloud_prefix}Online · {self._online_username}" if self._online_username else f"{cloud_prefix}Online")
             self.online_button.setText(label)
             self.online_button.setToolTip("Online yedekleme seçimini ve hesabı yönet." if self.i18n.language == "tr" else "Manage online backup selection and account.")
         else:
-            self.online_button.setText("☁  Online'a bağlan" if self.i18n.language == "tr" else "☁  Connect online")
+            self.online_button.setText(cloud_prefix + ("Online'a bağlan" if self.i18n.language == "tr" else "Connect online"))
             self.online_button.setToolTip("Supabase destekli DevNest Online hesabına bağlan." if self.i18n.language == "tr" else "Connect to your Supabase-backed DevNest Online account.")
         for key, button in self.buttons.items():
             label = self.i18n.t(self._label_keys[key])

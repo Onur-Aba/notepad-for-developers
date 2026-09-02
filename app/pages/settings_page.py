@@ -3,9 +3,11 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -21,7 +23,7 @@ from app.constants import COMMAND_SHORTCUTS, MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE
 from app.i18n import I18n, LANGUAGE_OPTIONS
 from app.settings import AppPreferences, SettingsManager
 from app.widgets.no_wheel_spinbox import NoWheelSpinBox
-from app.themes.theme_manager import THEME_OPTIONS
+from app.themes.theme_manager import THEME_OPTIONS, UI_MODE_OPTIONS
 
 
 class SettingsPage(QWidget):
@@ -122,6 +124,30 @@ class SettingsPage(QWidget):
         self.theme_combo = self._combo()
         self.theme_label = self._label()
         appearance_form.addRow(self.theme_label, self.theme_combo)
+
+        self.ui_mode_label = self._label()
+        self.ui_mode_switch = QFrame()
+        self.ui_mode_switch.setObjectName("uiModeSwitch")
+        mode_layout = QHBoxLayout(self.ui_mode_switch)
+        mode_layout.setContentsMargins(3, 3, 3, 3)
+        mode_layout.setSpacing(3)
+        self.ui_mode_group = QButtonGroup(self)
+        self.ui_mode_group.setExclusive(True)
+        self.ui_mode_buttons: dict[str, QPushButton] = {}
+        for _label, value in UI_MODE_OPTIONS:
+            button = QPushButton()
+            button.setObjectName("uiModeSegment")
+            button.setCheckable(True)
+            button.setMinimumWidth(118)
+            self.ui_mode_group.addButton(button)
+            self.ui_mode_buttons[value] = button
+            mode_layout.addWidget(button)
+        mode_layout.addStretch(1)
+        appearance_form.addRow(self.ui_mode_label, self.ui_mode_switch)
+        self.ui_mode_help = QLabel()
+        self.ui_mode_help.setObjectName("settingHelp")
+        self.ui_mode_help.setWordWrap(True)
+        appearance_form.addRow(self.ui_mode_help)
 
         self.shortcuts_group = self._group()
         shortcuts_form = self._form(self.shortcuts_group)
@@ -230,6 +256,9 @@ class SettingsPage(QWidget):
                 control.valueChanged.connect(self._save_immediate)
             else:
                 control.currentIndexChanged.connect(self._save_immediate)
+
+        for button in self.ui_mode_buttons.values():
+            button.clicked.connect(self._save_immediate)
 
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
         self.retranslate_ui()
@@ -342,7 +371,15 @@ class SettingsPage(QWidget):
         self.word_wrap.setText("Uzun satırları pencereye sığdır" if tr else "Wrap long lines to the window")
 
         self.appearance_group.setTitle("Görünüm" if tr else "Appearance")
-        self.theme_label.setText("Tema" if tr else "Theme")
+        self.theme_label.setText("Renk teması" if tr else "Color theme")
+        self.ui_mode_label.setText("Arayüz stili" if tr else "Interface style")
+        self.ui_mode_buttons["classic"].setText("Klasik" if tr else "Classic")
+        self.ui_mode_buttons["modern"].setText("Modern" if tr else "Modern")
+        self.ui_mode_help.setText(
+            "Klasik görünüm mevcut DevNest düzenini korur. Modern görünüm aynı özellikleri daha güçlü hiyerarşi, odak durumları, tutarlı boşluklar ve modern developer-tool yüzeyleriyle gösterir. Renk temanız her iki modda da korunur."
+            if tr else
+            "Classic keeps the existing DevNest layout. Modern presents the same features with stronger hierarchy, focus states, consistent spacing and modern developer-tool surfaces. Your color theme works in both modes."
+        )
         self._rebuild_themes()
 
         self.shortcuts_group.setTitle("Klavye kısayolları / Komut Paleti" if tr else "Keyboard shortcuts / Command Palette")
@@ -379,6 +416,12 @@ class SettingsPage(QWidget):
             if tr else
             "Change the app colors instantly; this does not change your notes or code."
         )
+        for value, button in self.ui_mode_buttons.items():
+            button.setToolTip(
+                ("DevNest'i klasik arayüz düzeninde göster." if value == "classic" else "DevNest'i modern, erişilebilir developer-tool arayüzünde göster.")
+                if tr else
+                ("Show DevNest with the classic interface style." if value == "classic" else "Show DevNest with the modern, accessible developer-tool interface style.")
+            )
         self.prefs_button.setToolTip(
             "Aynı tercihlerin ayrıntılı, ayrı pencere görünümünü açar."
             if tr else
@@ -458,6 +501,8 @@ class SettingsPage(QWidget):
             theme_index = self.theme_combo.findData(prefs.theme)
             if theme_index >= 0:
                 self.theme_combo.setCurrentIndex(theme_index)
+            mode = prefs.ui_mode if prefs.ui_mode in self.ui_mode_buttons else "classic"
+            self.ui_mode_buttons[mode].setChecked(True)
             self.startup.setChecked(prefs.check_repositories_on_startup)
             interval_index = self.interval.findData(prefs.github_poll_interval_minutes)
             if interval_index < 0:
@@ -467,8 +512,10 @@ class SettingsPage(QWidget):
             self._loading = False
 
     def current_preferences(self) -> AppPreferences:
+        selected_mode = next((value for value, button in self.ui_mode_buttons.items() if button.isChecked()), "classic")
         return AppPreferences(
             theme=str(self.theme_combo.currentData() or "system"),
+            ui_mode=selected_mode,
             autosave_enabled=self.autosave.isChecked(),
             autosave_delay_ms=self.autosave_delay.value(),
             start_with_last_note=self.start_last.isChecked(),

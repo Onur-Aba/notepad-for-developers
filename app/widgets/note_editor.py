@@ -17,7 +17,7 @@ from PySide6.QtGui import (
     QTextFormat,
     QTextListFormat,
 )
-from PySide6.QtWidgets import QMenu, QScrollBar, QTextEdit
+from PySide6.QtWidgets import QApplication, QMenu, QScrollBar, QTextEdit
 
 from app.widgets.find_bar import EditorFindBar
 
@@ -100,6 +100,19 @@ class NoteEditor(QTextEdit):
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(self.base_font_size)
         self.setFont(font)
+        self.retranslate_ui()
+
+    def _is_tr(self) -> bool:
+        app = QApplication.instance()
+        return bool(app is not None and app.property("devnestLanguage") == "tr")
+
+    def retranslate_ui(self) -> None:
+        self.setPlaceholderText(
+            "Notlarınızı, görevlerinizi, hataları, fikirleri veya planları yazın…"
+            if self._is_tr() else
+            "Write notes, tasks, bugs, ideas, or plans…"
+        )
+        self.find_bar.retranslate_ui()
 
     def show_find_bar(self) -> None:
         selected = self.textCursor().selectedText().replace("\u2029", "\n")
@@ -799,6 +812,6 @@ class NoteEditor(QTextEdit):
         toggle_checked = menu.addAction("Toggle Checked")
         toggle_checked.setEnabled(bool(TASK_LINE_RE.match(self.textCursor().block().text())))
         toggle_checked.triggered.connect(self.toggle_checkbox_at_cursor)
-        strike = menu.addAction("Strikethrough")
+        strike = menu.addAction("Üstü çizili" if tr else "Strikethrough")
         strike.triggered.connect(self.toggle_strikethrough)
         menu.exec(event.globalPos())

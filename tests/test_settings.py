@@ -15,6 +15,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
     manager = SettingsManager(qsettings)
     expected = AppPreferences(
         theme="dark",
+        ui_mode="modern",
         autosave_enabled=False,
         autosave_delay_ms=1200,
         start_with_last_note=False,

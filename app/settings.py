@@ -10,6 +10,7 @@ from app.constants import DEFAULT_AUTOSAVE_DELAY_MS
 @dataclass(slots=True)
 class AppPreferences:
     theme: str = "system"
+    ui_mode: str = "classic"
     autosave_enabled: bool = True
     autosave_delay_ms: int = DEFAULT_AUTOSAVE_DELAY_MS
     start_with_last_note: bool = True
@@ -29,6 +30,7 @@ class SettingsManager:
     def preferences(self) -> AppPreferences:
         return AppPreferences(
             theme=str(self.qsettings.value("appearance/theme", "system")),
+            ui_mode=str(self.qsettings.value("appearance/ui_mode", "classic") or "classic"),
             autosave_enabled=self._bool("general/autosave_enabled", True),
             autosave_delay_ms=int(self.qsettings.value("general/autosave_delay_ms", DEFAULT_AUTOSAVE_DELAY_MS)),
             start_with_last_note=self._bool("general/start_with_last_note", True),
@@ -43,6 +45,7 @@ class SettingsManager:
 
     def save_preferences(self, prefs: AppPreferences) -> None:
         self.qsettings.setValue("appearance/theme", prefs.theme)
+        self.qsettings.setValue("appearance/ui_mode", prefs.ui_mode)
         self.qsettings.setValue("general/autosave_enabled", prefs.autosave_enabled)
         self.qsettings.setValue("general/autosave_delay_ms", prefs.autosave_delay_ms)
         self.qsettings.setValue("general/start_with_last_note", prefs.start_with_last_note)
