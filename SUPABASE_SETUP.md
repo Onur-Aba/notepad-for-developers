@@ -1,6 +1,6 @@
 # DevNest Supabase Kurulumu
 
-DevNest, Supabase proje URL'sini ve istemci anahtarını kaynak koda gömmez. Çalıştırmadan önce ortam değişkenleri ile verin.
+DevNest production buildinde Supabase **Project URL** ve **Publishable Key** public istemci yapılandırması olarak paketlenebilir. Bunlar secret değildir; asıl veri güvenliği RLS/RPC kurallarıyla sağlanır. Ortam değişkenleri yalnızca geliştirici override'ı olarak kullanılabilir. `service_role`, `sb_secret_...`, GitHub Client Secret veya başka gerçek secret değerler uygulamaya gömülmez.
 
 ## 1. Supabase veritabanını hazırla
 
@@ -16,31 +16,25 @@ Supabase projenizin Project URL değerini ve Publishable key değerini alın. Es
 
 `service_role`, `sb_secret_...` veya başka bir server secret anahtarını DevNest'e vermeyin ve desktop uygulamasına gömmeyin.
 
-## 3. PowerShell ile çalıştırma
+## 3. Çalıştırma ve geliştirici override'ı
+
+Bu paket production public config ile geldiyse normal kullanıcı için environment variable gerekmez:
+
+```powershell
+python main.py
+```
+
+Farklı bir Supabase/GitHub test projesi kullanmak isteyen geliştirici environment variable ile production public config'i override edebilir:
 
 ```powershell
 $env:DEVNEST_SUPABASE_URL="https://PROJE_ID.supabase.co"
 $env:DEVNEST_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
+$env:DEVNEST_GITHUB_CLIENT_ID="CLIENT_ID"
+$env:DEVNEST_GITHUB_APP_SLUG="app-slug"
 python main.py
 ```
 
-Legacy anon key kullanılıyorsa:
-
-```powershell
-$env:DEVNEST_SUPABASE_URL="https://PROJE_ID.supabase.co"
-$env:DEVNEST_SUPABASE_ANON_KEY="ANON_KEY"
-python main.py
-```
-
-GitHub entegrasyonu da kullanılacaksa aynı terminal oturumunda GitHub ortam değişkenlerini de ayarlayabilirsiniz:
-
-```powershell
-$env:DEVNEST_GITHUB_CLIENT_ID="KEY"
-$env:DEVNEST_GITHUB_APP_SLUG="devnest-local-onur"
-$env:DEVNEST_SUPABASE_URL="https://PROJE_ID.supabase.co"
-$env:DEVNEST_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
-python main.py
-```
+Legacy Supabase anon key de geliştirici override'ı olarak desteklenir.
 
 ## Online yedekleme davranışı
 
@@ -59,7 +53,7 @@ gösterilir. Kullanıcı online sürümü yerelde kullanabilir, yerel sürümü 
 
 ## Ekip rolleri
 
-Rol düzenleme ekranında manuel "hiyerarşi seviyesi" yoktur. İç rank sunucuda verilen izinlerden otomatik hesaplanır. Kullanıcıya özel allow/deny override'ları da efektif hiyerarşiyi etkiler. `manage_roles` yetkisi olan biri yine de kendisini, eşit seviyedeki veya daha üstteki üyeleri/rolleri değiştiremez.
+Rol düzenleme ekranında manuel "hiyerarşi seviyesi" yoktur. İç rank sunucuda verilen izinlerden otomatik hesaplanır. Kullanıcıya özel allow/deny override'ları da efektif hiyerarşiyi etkiler. `manage_roles` yetkisi olan biri yine de kendisini, eşit seviyedeki veya daha üstteki üyeleri/rolleri değiştiremez. Son sürümde karşılaştırma yalnız ağırlıklı sayısal rank ile değil, **efektif yetki kümesinin strict superset/subset ilişkisiyle** yapılır. Yani bir rol yöneticisi hedef rolün sahip olduğu herhangi bir yetkiye kendisi sahip değilse o rolü düzenleyemez. Built-in `Admin` ve `Member` sistem rollerini yalnız ekip sahibi düzenleyebilir; `Admin` rolünü yalnız ekip sahibi atayabilir.
 
 ## Güvenlik notu
 

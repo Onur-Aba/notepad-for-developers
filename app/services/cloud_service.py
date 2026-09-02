@@ -10,6 +10,7 @@ from typing import Any, Callable
 from app.database import Database
 from app.integrations.supabase.client import SupabaseClient, SupabaseError
 from app.settings import SettingsManager
+from app.services.team_permissions import permissions_strictly_dominate
 
 PERMISSIONS: tuple[str, ...] = (
     "view_project",
@@ -786,10 +787,12 @@ class CloudService:
         if isinstance(value, list) and value:
             value = value[0]
         if not isinstance(value, dict):
-            return {"projects": [], "members": [], "roles": [], "activity": []}
+            return {"projects": [], "members": [], "roles": [], "activity": [], "viewer": {}}
         for key in ("projects", "members", "roles", "activity"):
             if not isinstance(value.get(key), list):
                 value[key] = []
+        if not isinstance(value.get("viewer"), dict):
+            value["viewer"] = {}
         return value
 
     def team_members(self, team_id: str) -> list[dict[str, Any]]:

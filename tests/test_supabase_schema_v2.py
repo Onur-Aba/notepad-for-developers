@@ -25,3 +25,22 @@ def test_team_snapshot_rpcs_exist_for_fast_page_load() -> None:
     assert "function public.team_overview()" in SCHEMA
     assert "function public.team_detail_snapshot(p_team_id uuid)" in SCHEMA
     assert "grant execute on function public.team_overview() to authenticated" in SCHEMA
+
+
+def test_role_hierarchy_uses_strict_effective_permission_dominance() -> None:
+    assert "function public.devnest_effective_permissions" in SCHEMA
+    assert "function public.devnest_permissions_strictly_dominate" in SCHEMA
+    assert "function public.team_can_manage_role" in SCHEMA
+    assert "v_actor_role=p_role" in SCHEMA
+    assert "if v_role.is_system then return false" in SCHEMA
+    assert "cannot edit your own, a system, equal, or higher role" in SCHEMA
+
+
+def test_team_snapshot_exposes_live_viewer_permissions_and_member_effective_permissions() -> None:
+    assert "'viewer',v_viewer" in SCHEMA
+    assert "'effective_permissions',public.devnest_effective_permissions" in SCHEMA
+    assert "'effective_rank',public.team_user_rank" in SCHEMA
+
+
+def test_invitation_acceptance_uses_builtin_member_role() -> None:
+    assert "is_system and lower(name)='member'" in SCHEMA

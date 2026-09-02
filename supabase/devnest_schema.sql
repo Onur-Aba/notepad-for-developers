@@ -1070,12 +1070,21 @@ declare
     v_members jsonb;
     v_roles jsonb;
     v_activity jsonb;
+    v_viewer jsonb;
 begin
     if v_user is null or not public.is_team_member(p_team_id,v_user) then
         raise exception 'team membership required';
     end if;
     select owner_id into v_owner from public.teams where id=p_team_id;
     if v_owner is null then raise exception 'team not found'; end if;
+
+    v_viewer := jsonb_build_object(
+      'user_id',v_user,
+      'is_owner',public.is_team_owner(p_team_id,v_user),
+      'role_id',(select m.role_id from public.team_members m where m.team_id=p_team_id and m.user_id=v_user),
+      'rank',public.team_user_rank(p_team_id,v_user),
+      'permissions',public.devnest_effective_permissions(p_team_id,v_user)
+    );
 
     select coalesce(jsonb_agg(jsonb_build_object(
         'id',p.id,'name',p.name,'description',p.description,'owner_id',p.owner_id,
@@ -1092,7 +1101,9 @@ begin
         select 0 as sort_key, jsonb_build_object(
           'team_id',p_team_id,'user_id',v_owner,'role_id',null,'joined_at',null,'is_owner',true,
           'profile',jsonb_build_object('id',p.id,'username',p.username,'first_name',p.first_name,'last_name',p.last_name),
-          'role',jsonb_build_object('name','Owner','rank',1000000,'permissions','{}'::jsonb)
+          'role',jsonb_build_object('name','Owner','rank',1000000,'permissions','{}'::jsonb),
+          'effective_permissions',public.devnest_effective_permissions(p_team_id,v_owner),
+          'effective_rank',public.team_user_rank(p_team_id,v_owner)
         ) as obj
         from public.profiles p where p.id=v_owner
         union all
@@ -1100,7 +1111,9 @@ begin
           'team_id',m.team_id,'user_id',m.user_id,'role_id',m.role_id,'joined_at',m.joined_at,'is_owner',false,
           'profile',jsonb_build_object('id',p.id,'username',p.username,'first_name',p.first_name,'last_name',p.last_name),
           'role',case when r.id is null then '{}'::jsonb else jsonb_build_object(
-            'id',r.id,'name',r.name,'rank',r.rank,'permissions',r.permissions,'is_system',r.is_system) end
+            'id',r.id,'name',r.name,'rank',r.rank,'permissions',r.permissions,'is_system',r.is_system) end,
+          'effective_permissions',public.devnest_effective_permissions(p_team_id,m.user_id),
+          'effective_rank',public.team_user_rank(p_team_id,m.user_id)
         )
         from public.team_members m
         join public.profiles p on p.id=m.user_id
@@ -1132,7 +1145,7 @@ begin
       left join public.profiles p on p.id=a.actor_id;
 
     return jsonb_build_object(
-      'projects',v_projects,'members',v_members,'roles',v_roles,'activity',v_activity
+      'projects',v_projects,'members',v_members,'roles',v_roles,'activity',v_activity,'viewer',v_viewer
     );
 end;
 $$;
@@ -1152,5 +1165,288 @@ revoke all on function public.team_detail_snapshot(uuid) from public,anon;
 grant execute on function public.team_overview() to authenticated;
 grant execute on function public.team_detail_snapshot(uuid) to authenticated;
 
+
+
+-- ---------------------------------------------------------------------------
+-- Live role hierarchy hardening (v3)
+-- ---------------------------------------------------------------------------
+-- Hierarchy is a permission partial-order, not merely a weighted number.  A
+-- member with manage_roles can only manage a target whose effective permission
+-- set is a *strict subset* of their own.  This prevents a low/custom role from
+-- editing Admin just because a numeric score happened to be larger.
+create or replace function public.devnest_effective_permissions(p_team uuid, p_user uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path=public
+as $$
+    select jsonb_build_object(
+      'view_project',public.team_has_permission(p_team,p_user,'view_project'),
+      'edit_project',public.team_has_permission(p_team,p_user,'edit_project'),
+      'delete_project',public.team_has_permission(p_team,p_user,'delete_project'),
+      'create_note',public.team_has_permission(p_team,p_user,'create_note'),
+      'edit_note',public.team_has_permission(p_team,p_user,'edit_note'),
+      'delete_note',public.team_has_permission(p_team,p_user,'delete_note'),
+      'create_decision',public.team_has_permission(p_team,p_user,'create_decision'),
+      'edit_decision',public.team_has_permission(p_team,p_user,'edit_decision'),
+      'delete_decision',public.team_has_permission(p_team,p_user,'delete_decision'),
+      'edit_architecture',public.team_has_permission(p_team,p_user,'edit_architecture'),
+      'manage_access',public.team_has_permission(p_team,p_user,'manage_access'),
+      'manage_roles',public.team_has_permission(p_team,p_user,'manage_roles'),
+      'invite_members',public.team_has_permission(p_team,p_user,'invite_members')
+    )
+$$;
+
+create or replace function public.devnest_permissions_strictly_dominate(p_actor jsonb, p_target jsonb)
+returns boolean
+language sql
+immutable
+set search_path=public
+as $$
+    with keys(k) as (values
+      ('view_project'),('edit_project'),('delete_project'),('create_note'),('edit_note'),('delete_note'),
+      ('create_decision'),('edit_decision'),('delete_decision'),('edit_architecture'),
+      ('manage_access'),('manage_roles'),('invite_members')
+    )
+    select
+      not exists (
+        select 1 from keys
+        where coalesce((p_target->>k)::boolean,false)
+          and not coalesce((p_actor->>k)::boolean,false)
+      )
+      and exists (
+        select 1 from keys
+        where coalesce((p_actor->>k)::boolean,false)
+          and not coalesce((p_target->>k)::boolean,false)
+      )
+$$;
+
+create or replace function public.team_user_rank(p_team uuid, p_user uuid default auth.uid())
+returns integer
+language sql
+stable
+security definer
+set search_path=public
+as $$
+    select case
+      when public.is_team_owner(p_team,p_user) then 1000000
+      when not exists(select 1 from public.team_members m where m.team_id=p_team and m.user_id=p_user) then 0
+      else public.devnest_permission_rank(public.devnest_effective_permissions(p_team,p_user))
+    end
+$$;
+
+create or replace function public.team_can_manage_member(p_team uuid, p_actor uuid, p_target uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path=public
+as $$
+    select p_actor is not null and p_target is not null and p_actor<>p_target
+       and not public.is_team_owner(p_team,p_target)
+       and (
+         public.is_team_owner(p_team,p_actor)
+         or (
+           public.team_has_permission(p_team,p_actor,'manage_roles')
+           and public.devnest_permissions_strictly_dominate(
+             public.devnest_effective_permissions(p_team,p_actor),
+             public.devnest_effective_permissions(p_team,p_target)
+           )
+         )
+       )
+$$;
+
+create or replace function public.team_can_manage_role(p_team uuid, p_actor uuid, p_role uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path=public
+as $$
+declare v_role public.team_roles%rowtype; v_actor_role uuid;
+begin
+    if p_actor is null or p_role is null then return false; end if;
+    select * into v_role from public.team_roles where id=p_role and team_id=p_team;
+    if not found then return false; end if;
+    if public.is_team_owner(p_team,p_actor) then return true; end if;
+    if not public.team_has_permission(p_team,p_actor,'manage_roles') then return false; end if;
+    select role_id into v_actor_role from public.team_members where team_id=p_team and user_id=p_actor;
+    if v_actor_role=p_role then return false; end if;
+    -- Built-in Admin/Member definitions are owner-controlled. This is defense
+    -- in depth on top of the strict permission hierarchy.
+    if v_role.is_system then return false; end if;
+    return public.devnest_permissions_strictly_dominate(
+      public.devnest_effective_permissions(p_team,p_actor),v_role.permissions
+    );
+end;
+$$;
+
+create or replace function public.team_create_role(p_team_id uuid, p_name text, p_permissions jsonb)
+returns uuid language plpgsql security definer set search_path=public
+as $$
+declare v_actor uuid:=auth.uid(); v_role uuid; v_rank integer;
+begin
+    if not (public.is_team_owner(p_team_id,v_actor) or public.team_has_permission(p_team_id,v_actor,'manage_roles')) then
+        raise exception 'not allowed';
+    end if;
+    if char_length(trim(p_name)) not between 1 and 80 then raise exception 'invalid role name'; end if;
+    if not public.devnest_permissions_valid(p_permissions) then raise exception 'invalid role permissions'; end if;
+    if not public.is_team_owner(p_team_id,v_actor)
+       and not public.devnest_permissions_strictly_dominate(
+         public.devnest_effective_permissions(p_team_id,v_actor),coalesce(p_permissions,'{}'::jsonb)
+       ) then
+        raise exception 'new role must be strictly below your effective permissions';
+    end if;
+    v_rank := public.devnest_permission_rank(coalesce(p_permissions,'{}'::jsonb));
+    insert into public.team_roles(team_id,name,rank,permissions)
+      values(p_team_id,trim(p_name),v_rank,coalesce(p_permissions,'{}'::jsonb))
+      returning id into v_role;
+    insert into public.team_activity(team_id,actor_id,event_type,title,detail,metadata)
+      values(p_team_id,v_actor,'role_created','Role created',trim(p_name),
+             jsonb_build_object('role_id',v_role,'derived_rank',v_rank));
+    return v_role;
+end;
+$$;
+
+create or replace function public.team_update_role(p_role_id uuid, p_name text, p_permissions jsonb)
+returns boolean language plpgsql security definer set search_path=public
+as $$
+declare v_actor uuid:=auth.uid(); v_role public.team_roles%rowtype; v_new_rank int;
+begin
+    select * into v_role from public.team_roles where id=p_role_id for update;
+    if not found then raise exception 'role not found'; end if;
+    if not public.team_can_manage_role(v_role.team_id,v_actor,p_role_id) then
+        raise exception 'cannot edit your own, a system, equal, or higher role';
+    end if;
+    if char_length(trim(p_name)) not between 1 and 80 then raise exception 'invalid role name'; end if;
+    if not public.devnest_permissions_valid(p_permissions) then raise exception 'invalid role permissions'; end if;
+    if not public.is_team_owner(v_role.team_id,v_actor)
+       and not public.devnest_permissions_strictly_dominate(
+         public.devnest_effective_permissions(v_role.team_id,v_actor),coalesce(p_permissions,'{}'::jsonb)
+       ) then
+        raise exception 'cannot promote a role to your own, equal, or higher permissions';
+    end if;
+    v_new_rank := public.devnest_permission_rank(coalesce(p_permissions,'{}'::jsonb));
+    update public.team_roles
+      set name=trim(p_name),rank=v_new_rank,permissions=coalesce(p_permissions,'{}'::jsonb),updated_at=now()
+      where id=p_role_id;
+    insert into public.team_activity(team_id,actor_id,event_type,title,detail,metadata)
+      values(v_role.team_id,v_actor,'role_updated','Role updated',trim(p_name),
+             jsonb_build_object('role_id',p_role_id,'derived_rank',v_new_rank));
+    return true;
+end;
+$$;
+
+create or replace function public.team_assign_role(p_team_id uuid, p_user_id uuid, p_role_id uuid)
+returns boolean language plpgsql security definer set search_path=public
+as $$
+declare v_actor uuid:=auth.uid(); v_role public.team_roles%rowtype;
+begin
+    if not public.team_can_manage_member(p_team_id,v_actor,p_user_id) then
+        raise exception 'cannot manage this member';
+    end if;
+    select * into v_role from public.team_roles where id=p_role_id and team_id=p_team_id;
+    if not found then raise exception 'role not found'; end if;
+    if not public.is_team_owner(p_team_id,v_actor) then
+        if v_role.is_system and lower(v_role.name)='admin' then
+            raise exception 'only the team owner can assign the system Admin role';
+        end if;
+        if not public.devnest_permissions_strictly_dominate(
+          public.devnest_effective_permissions(p_team_id,v_actor),v_role.permissions
+        ) then
+            raise exception 'cannot assign an equal or higher role';
+        end if;
+    end if;
+    update public.team_members set role_id=p_role_id where team_id=p_team_id and user_id=p_user_id;
+    if not found then raise exception 'member not found'; end if;
+    insert into public.team_activity(team_id,actor_id,event_type,title,detail,metadata)
+      values(p_team_id,v_actor,'role_assigned','Role assigned','',jsonb_build_object('user_id',p_user_id,'role_id',p_role_id));
+    return true;
+end;
+$$;
+
+create or replace function public.team_set_member_permission(p_team_id uuid, p_user_id uuid, p_permission text, p_allow boolean)
+returns boolean language plpgsql security definer set search_path=public
+as $$
+declare v_actor uuid:=auth.uid();
+begin
+    if p_permission not in ('view_project','edit_project','delete_project','create_note','edit_note','delete_note','create_decision','edit_decision','delete_decision','edit_architecture','manage_access','manage_roles','invite_members') then
+       raise exception 'unknown permission';
+    end if;
+    if not public.team_can_manage_member(p_team_id,v_actor,p_user_id) then
+       raise exception 'cannot manage this member';
+    end if;
+    if p_allow is null then
+      delete from public.team_member_permission_overrides where team_id=p_team_id and user_id=p_user_id and permission_key=p_permission;
+    else
+      insert into public.team_member_permission_overrides(team_id,user_id,permission_key,allow,updated_at)
+      values(p_team_id,p_user_id,p_permission,p_allow,now())
+      on conflict(team_id,user_id,permission_key) do update set allow=excluded.allow,updated_at=now();
+    end if;
+    -- Re-evaluate *after* the proposed override. Raising rolls the statement
+    -- back, so a manager cannot grant a target equal/superior effective rights.
+    if not public.is_team_owner(p_team_id,v_actor)
+       and not public.devnest_permissions_strictly_dominate(
+         public.devnest_effective_permissions(p_team_id,v_actor),
+         public.devnest_effective_permissions(p_team_id,p_user_id)
+       ) then
+       raise exception 'member permissions must remain strictly below your own';
+    end if;
+    insert into public.team_activity(team_id,actor_id,event_type,title,detail,metadata)
+      values(p_team_id,v_actor,'member_permission_changed','Member permission changed',p_permission,
+             jsonb_build_object('user_id',p_user_id,'allow',p_allow));
+    return true;
+end;
+$$;
+
+-- Invitations always land in the built-in Member role. A custom low-score role
+-- must never silently become the default just because its derived score is low.
+create or replace function public.team_respond_invitation(p_invitation_id uuid, p_accept boolean)
+returns boolean language plpgsql security definer set search_path=public
+as $$
+declare v_user uuid:=auth.uid(); v_inv public.team_invitations%rowtype; v_default_role uuid; v_team_name text;
+begin
+    select * into v_inv from public.team_invitations where id=p_invitation_id and invitee_id=v_user and status='pending' for update;
+    if not found then raise exception 'pending invitation not found'; end if;
+    if p_accept then
+        select id into v_default_role from public.team_roles
+          where team_id=v_inv.team_id and is_system and lower(name)='member'
+          order by created_at asc limit 1;
+        if v_default_role is null then
+          select id into v_default_role from public.team_roles where team_id=v_inv.team_id order by rank asc,created_at asc limit 1;
+        end if;
+        insert into public.team_members(team_id,user_id,role_id) values(v_inv.team_id,v_user,v_default_role)
+        on conflict(team_id,user_id) do update set role_id=coalesce(public.team_members.role_id,excluded.role_id);
+        update public.team_invitations set status='accepted',responded_at=now() where id=p_invitation_id;
+    else
+        update public.team_invitations set status='declined',responded_at=now() where id=p_invitation_id;
+    end if;
+    select name into v_team_name from public.teams where id=v_inv.team_id;
+    insert into public.user_notifications(user_id,event_type,title,detail,metadata)
+      select owner_id,'team_invite_response','Team invitation response',
+             coalesce((select username from public.profiles where id=v_user),'member') || case when p_accept then ' accepted ' else ' declined ' end || v_team_name,
+             jsonb_build_object('team_id',v_inv.team_id,'user_id',v_user,'accepted',p_accept)
+      from public.teams where id=v_inv.team_id;
+    insert into public.team_activity(team_id,actor_id,event_type,title,detail)
+      values(v_inv.team_id,v_user,case when p_accept then 'invite_accepted' else 'invite_declined' end,
+             case when p_accept then 'Invitation accepted' else 'Invitation declined' end,'');
+    return p_accept;
+end;
+$$;
+
+-- Internal hierarchy helpers are not callable as public REST RPC endpoints.
+revoke all on function public.devnest_effective_permissions(uuid,uuid) from public,anon,authenticated;
+revoke all on function public.devnest_permissions_strictly_dominate(jsonb,jsonb) from public,anon,authenticated;
+revoke all on function public.team_can_manage_role(uuid,uuid,uuid) from public,anon,authenticated;
+
+-- Existing public RPC signatures keep their authenticated grants after CREATE
+-- OR REPLACE, but re-grant explicitly so this migration is safe on fresh and
+-- upgraded projects alike.
+grant execute on function public.team_create_role(uuid,text,jsonb) to authenticated;
+grant execute on function public.team_update_role(uuid,text,jsonb) to authenticated;
+grant execute on function public.team_assign_role(uuid,uuid,uuid) to authenticated;
+grant execute on function public.team_set_member_permission(uuid,uuid,text,boolean) to authenticated;
+grant execute on function public.team_respond_invitation(uuid,boolean) to authenticated;
 
 commit;
