@@ -99,3 +99,22 @@ def test_public_github_app_config_is_remembered_from_environment(monkeypatch) ->
     restored = GitHubConfig.from_environment_and_settings(settings)
     assert restored.client_id == "Iv1.remember-me"
     assert restored.app_slug == "devnest-local"
+
+
+def test_packaged_github_public_defaults_work_without_environment_or_settings(monkeypatch) -> None:
+    class EmptySettings:
+        def value(self, key: str, default: object = None) -> object:
+            return default
+
+        def set_value(self, key: str, value: object) -> None:
+            raise AssertionError("packaged defaults should not need persistence")
+
+        def sync(self) -> None:
+            raise AssertionError("packaged defaults should not need persistence")
+
+    monkeypatch.delenv("DEVNEST_GITHUB_CLIENT_ID", raising=False)
+    monkeypatch.delenv("DEVNEST_GITHUB_APP_SLUG", raising=False)
+    cfg = GitHubConfig.from_environment_and_settings(EmptySettings())
+    assert cfg.client_id == "Iv23liQwgwyxC1bVXMgd"
+    assert cfg.app_slug == "devnest-local-onur"
+    assert cfg.configured

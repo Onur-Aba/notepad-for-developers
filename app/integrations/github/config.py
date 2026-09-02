@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.constants import VERSION
+from app.public_config import DEFAULT_GITHUB_APP_SLUG, DEFAULT_GITHUB_CLIENT_ID
 
 GITHUB_API_BASE_URL = "https://api.github.com"
 GITHUB_WEB_BASE_URL = "https://github.com"
@@ -28,27 +29,32 @@ class GitHubConfig:
     @classmethod
     def from_environment(cls) -> "GitHubConfig":
         return cls(
-            client_id=os.environ.get("DEVNEST_GITHUB_CLIENT_ID", "").strip(),
-            app_slug=os.environ.get("DEVNEST_GITHUB_APP_SLUG", "").strip(),
+            client_id=(os.environ.get("DEVNEST_GITHUB_CLIENT_ID") or DEFAULT_GITHUB_CLIENT_ID).strip(),
+            app_slug=(os.environ.get("DEVNEST_GITHUB_APP_SLUG") or DEFAULT_GITHUB_APP_SLUG).strip(),
         )
 
     @classmethod
     def from_environment_and_settings(cls, settings: SettingsLike) -> "GitHubConfig":
-        """Load public GitHub App identifiers and persist them locally.
+        """Load public GitHub App identifiers with safe production defaults.
 
-        The GitHub App Client ID and app slug are public identifiers, not secrets.
-        Environment variables win when present. Once seen, they are copied to
-        QSettings so a packaged EXE launched by double-click keeps working even
-        when the original PowerShell session is gone.
+        Precedence is: environment override -> locally remembered override ->
+        packaged public production value. This preserves the existing developer
+        workflow while making a fresh packaged EXE work without PowerShell.
+
+        Client ID and app slug are public identifiers; no client secret/private
+        key is stored or bundled by DevNest.
         """
         env_client_id = os.environ.get("DEVNEST_GITHUB_CLIENT_ID", "").strip()
         env_app_slug = os.environ.get("DEVNEST_GITHUB_APP_SLUG", "").strip()
         stored_client_id = str(settings.value("github/app_client_id", "") or "").strip()
         stored_app_slug = str(settings.value("github/app_slug", "") or "").strip()
 
-        client_id = env_client_id or stored_client_id
-        app_slug = env_app_slug or stored_app_slug
+        client_id = env_client_id or stored_client_id or DEFAULT_GITHUB_CLIENT_ID
+        app_slug = env_app_slug or stored_app_slug or DEFAULT_GITHUB_APP_SLUG
 
+        # Keep the existing behavior: explicit developer overrides are remembered
+        # locally. Packaged defaults themselves do not need to be copied to user
+        # settings and therefore can change cleanly in a later release.
         changed = False
         if env_client_id and env_client_id != stored_client_id:
             settings.set_value("github/app_client_id", env_client_id)
