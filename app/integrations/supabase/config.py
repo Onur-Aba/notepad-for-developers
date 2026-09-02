@@ -3,16 +3,19 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from app.public_config import DEFAULT_SUPABASE_PUBLISHABLE_KEY, DEFAULT_SUPABASE_URL
+
 
 @dataclass(frozen=True, slots=True)
 class SupabaseConfig:
-    """Runtime-only Supabase configuration.
+    """Supabase client configuration for the desktop application.
 
-    DevNest intentionally does not ship a project URL or client key in source.
-    Desktop deployments supply them through environment variables. A Supabase
-    publishable/legacy anon key is a *client* key (RLS is the security boundary),
-    but keeping deployment configuration out of the binary makes projects easier
-    to rotate and avoids accidental coupling to one hosted backend.
+    The packaged production URL + publishable key are public client values and
+    are bundled so a released DevNest.exe works when launched by double-click.
+    Environment variables remain supported as developer/deployment overrides.
+
+    Security must never rely on hiding a publishable key in a desktop binary;
+    Supabase RLS and server-side authorization are the data-access boundary.
     """
 
     url: str = ""
@@ -20,13 +23,17 @@ class SupabaseConfig:
 
     @classmethod
     def from_environment(cls) -> "SupabaseConfig":
-        url = (os.getenv("DEVNEST_SUPABASE_URL") or os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
+        url = (
+            os.getenv("DEVNEST_SUPABASE_URL")
+            or os.getenv("SUPABASE_URL")
+            or DEFAULT_SUPABASE_URL
+        ).strip().rstrip("/")
         key = (
             os.getenv("DEVNEST_SUPABASE_PUBLISHABLE_KEY")
             or os.getenv("DEVNEST_SUPABASE_ANON_KEY")
             or os.getenv("SUPABASE_PUBLISHABLE_KEY")
             or os.getenv("SUPABASE_ANON_KEY")
-            or ""
+            or DEFAULT_SUPABASE_PUBLISHABLE_KEY
         ).strip()
         return cls(url=url, publishable_key=key)
 

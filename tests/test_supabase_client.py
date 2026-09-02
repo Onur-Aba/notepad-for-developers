@@ -44,3 +44,19 @@ def test_supabase_sql_enables_rls_and_never_uses_service_role_client_key():
     assert "team_can_view_resource" in sql
     assert "service_role" in sql  # documentation warning is present
     assert "grant execute" in sql
+
+
+def test_supabase_config_uses_packaged_public_defaults_without_environment(monkeypatch):
+    for name in (
+        "DEVNEST_SUPABASE_URL",
+        "SUPABASE_URL",
+        "DEVNEST_SUPABASE_PUBLISHABLE_KEY",
+        "DEVNEST_SUPABASE_ANON_KEY",
+        "SUPABASE_PUBLISHABLE_KEY",
+        "SUPABASE_ANON_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    config = SupabaseConfig.from_environment()
+    assert config.url == "https://tceysmcbqrvdjlvlowcj.supabase.co"
+    assert config.publishable_key.startswith("sb_publishable_")
+    assert config.configured

@@ -82,4 +82,6 @@ if ($OneFile) {
     Write-Host "For maximum reliability, distribute the ENTIRE dist\DevNest folder."
 }
 Write-Host "GitHub tokens remain in Windows Credential Manager and are NOT embedded in the EXE."
-Write-Host "Public GitHub App Client ID/slug are remembered in Windows QSettings after DevNest sees them once."
+Write-Host "Public GitHub Client ID/App Slug and Supabase URL/Publishable Key are bundled for zero-setup distribution."
+Write-Host "No service-role key, Supabase secret key, GitHub client secret, or private key is bundled."
+Write-Host "DEVNEST_* environment variables are optional developer overrides only."
