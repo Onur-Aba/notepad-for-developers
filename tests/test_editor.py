@@ -70,7 +70,7 @@ def test_auto_checkbox_enter_continues_task(app: QApplication) -> None:
     assert editor.toPlainText() == "☐ Backend\n☐ "
 
 
-def test_empty_auto_checkbox_enter_exits_task_mode(app: QApplication) -> None:
+def test_empty_auto_checkbox_enter_continues_task_mode(app: QApplication) -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
@@ -81,7 +81,7 @@ def test_empty_auto_checkbox_enter_exits_task_mode(app: QApplication) -> None:
     cursor.movePosition(QTextCursor.MoveOperation.End)
     editor.setTextCursor(cursor)
     QTest.keyClick(editor, Qt.Key.Key_Return)
-    assert editor.toPlainText() == ""
+    assert editor.toPlainText() == "☐ \n☐ "
 
 
 def test_font_controls_apply_rich_text_formatting(app: QApplication) -> None:

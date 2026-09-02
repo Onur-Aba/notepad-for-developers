@@ -11,7 +11,10 @@ NAV_ITEMS = (
     ("notes", "nav.notes", "tip.nav.notes"),
     ("decisions", "nav.decisions", "tip.nav.decisions"),
     ("architecture", "nav.architecture", "tip.nav.architecture"),
+    ("activity", "nav.activity", "tip.nav.activity"),
+    ("health", "nav.health", "tip.nav.health"),
     ("review", "nav.review", "tip.nav.review"),
+    ("teams", "nav.teams", "tip.nav.teams"),
 )
 INTEGRATION_ITEMS = (
     ("github", "nav.github", "tip.nav.github"),
@@ -22,6 +25,7 @@ INTEGRATION_ITEMS = (
 class NavigationSidebar(QWidget):
     pageSelected = Signal(str)
     trashRequested = Signal()
+    onlineRequested = Signal()
 
     def __init__(self, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
@@ -52,6 +56,9 @@ class NavigationSidebar(QWidget):
         root.addWidget(self.workspace_section)
 
         self.buttons: dict[str, QPushButton] = {}
+        self._team_badge = 0
+        self._online_connected = False
+        self._online_username = ""
         self._label_keys: dict[str, str] = {}
         self._tooltip_keys: dict[str, str] = {}
         for key, label_key, tip_key in NAV_ITEMS:
@@ -65,6 +72,10 @@ class NavigationSidebar(QWidget):
             self._add_button(root, key, label_key, tip_key)
 
         root.addStretch(1)
+        self.online_button = QPushButton()
+        self.online_button.setObjectName("primaryButton")
+        self.online_button.clicked.connect(self.onlineRequested)
+        root.addWidget(self.online_button)
         self.trash_button = QPushButton()
         self.trash_button.setObjectName("navTrashButton")
         self.trash_button.clicked.connect(self.trashRequested)
@@ -101,10 +112,29 @@ class NavigationSidebar(QWidget):
             if self.i18n.language == "tr" else
             "See individually deleted notes and entire deleted projects here. Projects stay grouped with their notes, decisions and diagrams as one bundle."
         )
+        if self._online_connected:
+            label = (f"☁  Online · {self._online_username}" if self._online_username else "☁  Online")
+            self.online_button.setText(label)
+            self.online_button.setToolTip("Online yedekleme seçimini ve hesabı yönet." if self.i18n.language == "tr" else "Manage online backup selection and account.")
+        else:
+            self.online_button.setText("☁  Online'a bağlan" if self.i18n.language == "tr" else "☁  Connect online")
+            self.online_button.setToolTip("Supabase destekli DevNest Online hesabına bağlan." if self.i18n.language == "tr" else "Connect to your Supabase-backed DevNest Online account.")
         for key, button in self.buttons.items():
-            button.setText(self.i18n.t(self._label_keys[key]))
+            label = self.i18n.t(self._label_keys[key])
+            if key == "teams" and self._team_badge:
+                label = f"{label}  {self._team_badge}"
+            button.setText(label)
             button.setToolTip(self.i18n.t(self._tooltip_keys[key]))
 
     def set_current(self, key: str) -> None:
         if key in self.buttons:
             self.buttons[key].setChecked(True)
+
+    def set_team_badge(self, count: int) -> None:
+        self._team_badge = max(0, int(count))
+        self.retranslate_ui()
+
+    def set_online_state(self, connected: bool, username: str = "") -> None:
+        self._online_connected = bool(connected)
+        self._online_username = username.strip()
+        self.retranslate_ui()

@@ -30,17 +30,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.constants import APP_NAME, DEFAULT_NOTE_TITLE, SHORTCUTS, VERSION
+from app.constants import APP_NAME, COMMAND_SHORTCUTS, DEFAULT_NOTE_TITLE, SHORTCUTS, VERSION
 from app.i18n import I18n, LANGUAGE_OPTIONS
 from app.database import Database, DatabaseError
 from app.dialogs.preferences import PreferencesDialog
 from app.dialogs.settings_dialog import SettingsDialog
 from app.dialogs.shortcuts import ShortcutsDialog
 from app.dialogs.trash import TrashDialog
+from app.dialogs.notification_center import NotificationCenterDialog
+from app.dialogs.backup_manager import BackupManagerDialog
+from app.dialogs.project_transfer import ExportProjectDialog, ImportProjectDialog
+from app.dialogs.repository_diagnostics import RepositoryDiagnosticsDialog
+from app.dialogs.onboarding import OnboardingDialog
+from app.dialogs.cloud_account import CloudAccountDialog
+from app.dialogs.cloud_sync import CloudSyncDialog
 from app.models import ChangedFile, CommitHistoryEntry, Note, ResourceType, ReviewStatus, ReviewSummary
 from app.integrations.github.browser import BrowserLauncher
 from app.integrations.github.client import GitHubClient
 from app.integrations.github.config import GitHubConfig
+from app.integrations.supabase import SupabaseClient, SupabaseConfig, SupabaseError
 from app.pages.architecture_page import ArchitecturePage
 from app.pages.dashboard_page import DashboardPage
 from app.pages.decisions_page import DecisionsPage
@@ -48,6 +56,10 @@ from app.pages.github_page import GitHubPage
 from app.pages.project_detail_page import ProjectDetailPage
 from app.pages.projects_page import ProjectsPage
 from app.pages.review_inbox_page import ReviewInboxPage
+from app.pages.project_activity_page import ProjectActivityPage
+from app.pages.project_health_page import ProjectHealthPage
+from app.pages.teams_page import TeamsPage
+from app.pages.code_resource_detail_page import CodeResourceDetailPage
 from app.services.async_tasks import AsyncTaskRunner
 from app.services.change_detection_service import ChangeDetectionService, merge_review_summaries
 from app.services.credential_store import create_default_credential_store
@@ -56,6 +68,8 @@ from app.services.project_service import ProjectService
 from app.services.repository_service import RepositoryService
 from app.services.resource_link_service import ResourceLinkService
 from app.services.review_service import ReviewService
+from app.services.workspace_transfer import BackupManager, ProjectTransferService
+from app.services.cloud_service import CloudService
 from app.paths import database_path
 from app.services.txt_codec import (
     export_internal_plain_text,
@@ -76,6 +90,9 @@ from app.widgets.resource_chip import ResourceChip
 from app.widgets.resource_link_dialog import ResourceLinkDialog
 from app.widgets.review_details_dialog import ReviewDetailsDialog
 from app.widgets.status_badge import StatusBadge
+from app.widgets.tags_editor import TagsEditor
+from app.widgets.resource_history_dialog import ResourceHistoryDialog
+from app.widgets.command_palette import CommandPaletteDialog
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +122,12 @@ class MainWindow(QMainWindow):
         self.repository_service = RepositoryService(self.database, self.local_git)
         self.resource_link_service = ResourceLinkService(self.database)
         self.review_service = ReviewService(self.database)
+        self.backup_manager = BackupManager(self.database, self.database.path.parent / "backups")
+        self.project_transfer = ProjectTransferService(self.database)
         self.credential_store = create_default_credential_store()
         self.github_config = GitHubConfig.from_environment_and_settings(self.settings)
+        self.supabase_client = SupabaseClient(SupabaseConfig.from_environment())
+        self.cloud_service = CloudService(self.database, self.settings, self.supabase_client)
         self.browser_launcher = BrowserLauncher()
         self.task_runner = AsyncTaskRunner()
         saved_project = self.settings.value("session/last_project_id", None)
@@ -157,19 +178,32 @@ class MainWindow(QMainWindow):
         self.local_watch_timer.setInterval(2000)
         self.local_watch_timer.timeout.connect(self._check_local_repositories_live)
         self.local_watch_timer.start()
+
+        self.cloud_poll_timer = QTimer(self)
+        self.cloud_poll_timer.setInterval(60000)
+        self.cloud_poll_timer.timeout.connect(self._cloud_tick)
+        self.cloud_poll_timer.start()
+        QTimer.singleShot(700, self._cloud_tick)
+
         app = QApplication.instance()
         if app is not None:
             app.applicationStateChanged.connect(self._application_state_changed)
         saved_page = str(self.settings.value("session/last_page", "dashboard") or "dashboard")
         self._navigate(saved_page if saved_page in self.pages else "dashboard")
+        self._refresh_notification_button()
         QTimer.singleShot(0, self._startup_refresh)
+        shown = str(self.settings.value("onboarding/shown", "0")).lower() in {"1", "true", "yes"}
+        if not shown:
+            QTimer.singleShot(150, self._show_onboarding)
 
     def _build_ui(self) -> None:
         # Existing note/editor/diagram workspace is preserved as the Notes page.
         self.sidebar = Sidebar(self.i18n)
         self.title_edit = QLineEdit()
+        self.title_edit.setText(DEFAULT_NOTE_TITLE)
         self.title_edit.setPlaceholderText(DEFAULT_NOTE_TITLE)
         self.title_edit.setObjectName("documentTitle")
+        self.title_edit.setMinimumHeight(42)
 
         self.editor = NoteEditor()
         self.editor.setAcceptDrops(False)
@@ -209,13 +243,56 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(8, 8, 8, 6)
         content_layout.setSpacing(6)
+        note_meta = QHBoxLayout()
+        self.note_favorite_button = QPushButton("☆")
+        self.note_favorite_button.setFixedWidth(44)
+        self.note_history_button = QPushButton()
+        self.note_tags_editor = TagsEditor(self.i18n)
+        note_meta.addWidget(self.note_favorite_button)
+        note_meta.addWidget(self.note_history_button)
+        note_meta.addWidget(self.note_tags_editor, 1)
         content_layout.addWidget(self.title_edit)
+        content_layout.addLayout(note_meta)
         content_layout.addWidget(self.note_resource_bar)
         content_layout.addWidget(self.tabs, 1)
+        self.note_editor_page = content
+
+        # The note detail area has two explicit states. When no note is selected
+        # we do not leave a disabled editor on screen, because that looks like an
+        # editable/default note. Instead we show a clear empty state with a direct
+        # action to create a note.
+        self.note_empty_page = QWidget()
+        empty_layout = QVBoxLayout(self.note_empty_page)
+        empty_layout.setContentsMargins(54, 40, 54, 40)
+        empty_layout.setSpacing(12)
+        empty_layout.addStretch(1)
+        self.note_empty_title = QLabel()
+        self.note_empty_title.setObjectName("pageTitle")
+        self.note_empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.note_empty_body = QLabel()
+        self.note_empty_body.setObjectName("pageSubtitle")
+        self.note_empty_body.setWordWrap(True)
+        self.note_empty_body.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.note_empty_create_button = QPushButton()
+        self.note_empty_create_button.setObjectName("primaryButton")
+        self.note_empty_create_button.setMinimumWidth(180)
+        self.note_empty_create_button.clicked.connect(self.new_note)
+        empty_layout.addWidget(self.note_empty_title)
+        empty_layout.addWidget(self.note_empty_body)
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        button_row.addWidget(self.note_empty_create_button)
+        button_row.addStretch(1)
+        empty_layout.addLayout(button_row)
+        empty_layout.addStretch(1)
+
+        self.note_detail_stack = QStackedWidget()
+        self.note_detail_stack.addWidget(self.note_editor_page)
+        self.note_detail_stack.addWidget(self.note_empty_page)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.sidebar)
-        self.splitter.addWidget(content)
+        self.splitter.addWidget(self.note_detail_stack)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([280, 940])
@@ -240,6 +317,10 @@ class MainWindow(QMainWindow):
         self.decisions_page = DecisionsPage(self.database, self.i18n)
         self.architecture_page = ArchitecturePage(self.database, self.i18n)
         self.review_page = ReviewInboxPage(self.database, self.i18n)
+        self.activity_page = ProjectActivityPage(self.database, self.i18n)
+        self.health_page = ProjectHealthPage(self.database, self.i18n)
+        self.teams_page = TeamsPage(self.cloud_service, self.i18n)
+        self.code_resource_page = CodeResourceDetailPage(self.database, self.i18n)
         self.github_page = GitHubPage(
             self.database, self.credential_store, self.github_config, self.browser_launcher, self.i18n
         )
@@ -253,13 +334,18 @@ class MainWindow(QMainWindow):
             "notes": self.notes_page,
             "decisions": self.decisions_page,
             "architecture": self.architecture_page,
+            "activity": self.activity_page,
+            "health": self.health_page,
+            "code_resource": self.code_resource_page,
             "review": self.review_page,
+            "teams": self.teams_page,
             "github": self.github_page,
         }
         for page in self.pages.values():
             self.page_stack.addWidget(page)
 
         self.global_navigation = NavigationSidebar(self.i18n)
+        self._update_online_navigation()
 
         self.top_bar = QWidget()
         self.top_bar.setObjectName("productTopBar")
@@ -271,6 +357,10 @@ class MainWindow(QMainWindow):
         self.global_search = QLineEdit()
         self.global_search.setPlaceholderText("Search projects, notes, decisions…")
         self.global_search.setClearButtonEnabled(True)
+        self.notification_button = QPushButton("🔔")
+        self.notification_button.setObjectName("connectivityIndicator")
+        self.notification_button.setMinimumWidth(52)
+        self.notification_button.clicked.connect(self._open_notifications)
         self.github_indicator = QPushButton("Connect GitHub")
         self.github_indicator.setObjectName("connectivityIndicator")
         self.github_indicator.clicked.connect(self._top_right_action)
@@ -289,6 +379,7 @@ class MainWindow(QMainWindow):
         top_layout.addStretch(1)
         top_layout.addWidget(self.global_search, 2)
         top_layout.addWidget(self.language_combo)
+        top_layout.addWidget(self.notification_button)
         top_layout.addWidget(self.github_indicator)
 
         right = QWidget()
@@ -323,9 +414,12 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.stats_label)
 
         self._refresh_project_selector()
+        self.dashboard_page.set_project(self.current_project_id)
         self.decisions_page.set_project(self.current_project_id)
         self.architecture_page.set_project(self.current_project_id)
         self.project_detail_page.set_project(self.current_project_id)
+        self.activity_page.set_project(self.current_project_id)
+        self.health_page.set_project(self.current_project_id)
         self.review_page.set_project(self.current_project_id)
         self._navigate("dashboard")
 
@@ -351,22 +445,22 @@ class MainWindow(QMainWindow):
 
         self.undo_action = QAction("Undo", self)
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        self.undo_action.triggered.connect(self.editor.undo)
+        self.undo_action.triggered.connect(lambda: self._dispatch_edit_command("undo"))
         self.redo_action = QAction("Redo", self)
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        self.redo_action.triggered.connect(self.editor.redo)
+        self.redo_action.triggered.connect(lambda: self._dispatch_edit_command("redo"))
         self.cut_action = QAction("Cut", self)
         self.cut_action.setShortcut(QKeySequence.StandardKey.Cut)
-        self.cut_action.triggered.connect(self.editor.cut)
+        self.cut_action.triggered.connect(lambda: self._dispatch_edit_command("cut"))
         self.copy_action = QAction("Copy", self)
         self.copy_action.setShortcut(QKeySequence.StandardKey.Copy)
-        self.copy_action.triggered.connect(self.editor.copy)
+        self.copy_action.triggered.connect(lambda: self._dispatch_edit_command("copy"))
         self.paste_action = QAction("Paste", self)
         self.paste_action.setShortcut(QKeySequence.StandardKey.Paste)
-        self.paste_action.triggered.connect(self.editor.paste)
+        self.paste_action.triggered.connect(lambda: self._dispatch_edit_command("paste"))
         self.select_all_action = QAction("Select All", self)
         self.select_all_action.setShortcut(QKeySequence.StandardKey.SelectAll)
-        self.select_all_action.triggered.connect(self.editor.selectAll)
+        self.select_all_action.triggered.connect(lambda: self._dispatch_edit_command("selectAll"))
         self.find_action = QAction("Find", self)
         self.find_action.setShortcut(SHORTCUTS["Find in Note"])
         self.find_action.triggered.connect(self.find_in_note)
@@ -418,6 +512,18 @@ class MainWindow(QMainWindow):
         self.shortcuts_action.triggered.connect(lambda: ShortcutsDialog(self.i18n, self).exec())
         self.about_action = QAction("About DevNest", self)
         self.about_action.triggered.connect(self.show_about)
+
+        self.command_actions: dict[str, QAction] = {}
+        for command_id, (_label, default_shortcut) in COMMAND_SHORTCUTS.items():
+            action = QAction(self)
+            action.setShortcut(QKeySequence(self.settings.command_shortcut(command_id, default_shortcut)))
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            if command_id == "command_palette":
+                action.triggered.connect(self._open_command_palette)
+            else:
+                action.triggered.connect(lambda _checked=False, cid=command_id: self._execute_command(cid))
+            self.addAction(action)
+            self.command_actions[command_id] = action
 
     def _build_toolbar(self) -> None:
         # Two compact rows avoid Qt's overflow "..." extension button even on
@@ -647,6 +753,7 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.sidebar.noteSelected.connect(self.open_note)
+        self.sidebar.noteSelectionCleared.connect(self._clear_note_selection)
         self.sidebar.newNoteRequested.connect(self.new_note)
         self.sidebar.trashRequested.connect(self.open_trash)
         self.sidebar.renameRequested.connect(self.rename_note)
@@ -668,14 +775,21 @@ class MainWindow(QMainWindow):
 
         self.global_navigation.pageSelected.connect(self._navigate)
         self.global_navigation.trashRequested.connect(self.open_trash)
+        self.global_navigation.onlineRequested.connect(self._open_online)
+        self.teams_page.onlineRequested.connect(self._open_online)
+        self.teams_page.pendingCountChanged.connect(self.global_navigation.set_team_badge)
         self.project_selector.currentIndexChanged.connect(self._project_selected)
         self.global_search.returnPressed.connect(self._open_global_search)
         self.note_link_button.clicked.connect(lambda: self._link_resource("note", self.current_note_id))
         self.note_view_changes_button.clicked.connect(lambda: self._view_resource_changes("note", self.current_note_id))
         self.note_mark_reviewed_button.clicked.connect(lambda: self._mark_resource_reviewed("note", self.current_note_id))
+        self.note_favorite_button.clicked.connect(self._toggle_note_favorite)
+        self.note_history_button.clicked.connect(self._open_note_history)
+        self.note_tags_editor.tagsChanged.connect(self._save_note_tags)
 
         self.dashboard_page.reviewRequested.connect(lambda: self._navigate("review"))
         self.dashboard_page.projectRequested.connect(self._open_project_detail)
+        self.dashboard_page.recentRequested.connect(self._open_recent_item)
         self.projects_page.projectOpened.connect(self._open_project_detail)
         self.projects_page.projectsChanged.connect(self._projects_changed)
         self.projects_page.localRepositoryRequested.connect(self._add_local_repository_async)
@@ -683,6 +797,8 @@ class MainWindow(QMainWindow):
         self.project_detail_page.sectionRequested.connect(self._project_section_requested)
         self.project_detail_page.refreshRepositoryRequested.connect(self._refresh_repository_async)
         self.project_detail_page.unlinkRepositoryRequested.connect(self._unlink_repository_from_project)
+        self.code_resource_page.backRequested.connect(self._back_from_code_resource)
+        self.code_resource_page.knowledgeRequested.connect(self._open_linked_knowledge)
 
         self.decisions_page.linkResourceRequested.connect(lambda did: self._link_resource("decision", did or None))
         self.decisions_page.viewChangesRequested.connect(lambda did: self._view_resource_changes("decision", did or None))
@@ -727,6 +843,13 @@ class MainWindow(QMainWindow):
         self.project_detail_page.set_project(self.current_project_id)
         self.decisions_page.refresh(self.decisions_page.current_decision_id)
         self.refresh_note_resources()
+        self.dashboard_page.refresh()
+        self.activity_page.retranslate_ui()
+        self.health_page.retranslate_ui()
+        self.code_resource_page.retranslate_ui()
+        self.teams_page.retranslate_ui()
+        self._update_online_navigation()
+        self._refresh_notification_button()
         self._github_state_changed(self._github_state)
 
     def _retranslate_shell(self) -> None:
@@ -745,6 +868,20 @@ class MainWindow(QMainWindow):
         self.note_link_button.setToolTip(self.i18n.t("tip.notes.link"))
         self.note_view_changes_button.setToolTip(self.i18n.t("tip.notes.changes"))
         self.note_mark_reviewed_button.setToolTip(self.i18n.t("tip.notes.review"))
+        self.note_history_button.setText("Geçmiş" if tr else "History")
+        self.note_history_button.setToolTip("Bu notun review geçmişini gösterir." if tr else "Show this note's review history.")
+        self.note_favorite_button.setToolTip("Bu notu favorilere sabitle." if tr else "Pin this note to favorites.")
+        self.note_empty_title.setText("Henüz bir not seçili değil" if tr else "No note selected")
+        self.note_empty_body.setText(
+            "Soldaki listeden bir not seçin veya bu projede yeni bir not oluşturun." if tr
+            else "Choose a note from the list on the left, or create a new note in this project."
+        )
+        self.note_empty_create_button.setText("Yeni not oluştur" if tr else "Create new note")
+        self.note_empty_create_button.setToolTip(
+            "Aktif projede yeni, boş bir not oluşturur ve doğrudan editörde açar." if tr
+            else "Create a new blank note in the active project and open it in the editor."
+        )
+        self._refresh_notification_button()
         self.tabs.setTabText(0, self.i18n.t("notes.editor"))
         self.editor_workspace_button.setText(self.i18n.t("notes.editor"))
         self.theme_label.setText("Tema:" if tr else "Theme:")
@@ -775,7 +912,7 @@ class MainWindow(QMainWindow):
             self.import_action: ("Bilgisayarınızdaki bir TXT dosyasını yeni nota dönüştürür. Kaynak TXT dosyanız değiştirilmez.", "Turn a TXT file from your computer into a DevNest note. The original TXT file is not changed."),
             self.export_action: ("Açık notun okunabilir metin kopyasını TXT dosyası olarak dışarı verir.", "Save a readable plain-text copy of the open note as a TXT file."),
             self.checkbox_action: ("Yazdığınız satıra işaretlenebilir bir görev kutusu ekler.", "Insert a checkable task box on the current line."),
-            self.auto_checkbox_action: ("Açıksa bir onay kutulu satırdan sonra Enter'a bastığınızda yeni satırda da otomatik kutu oluşturur.", "When enabled, pressing Enter after a checkbox line automatically creates another checkbox on the next line."),
+            self.auto_checkbox_action: ("Açıldığında mevcut dolu satırların başına otomatik kutu ekler; kapatıldığında bu otomatik kutuları kaldırır. Kutulu satırın ortasında Enter, sağdaki metni yeni kutunun arkasına taşır.", "When enabled, adds checkboxes to existing non-empty lines; disabling removes those automatic markers. Enter in the middle of a task moves the remaining text after the new checkbox."),
             self.numbered_action: ("1., 2., 3. şeklindeki numaralı satırları Enter ile otomatik sürdürür.", "Continue numbered lines such as 1., 2., 3. automatically when you press Enter."),
             self.blank_line_enter_action: ("Açıksa Enter'a bir kez basınca iki satır aşağı iner ve arada boş satır bırakır.", "When enabled, one Enter moves down two lines and leaves a blank line between paragraphs."),
             self.toggle_sidebar_action: ("Not listesini gizler veya yeniden gösterir. Notlarınız silinmez.", "Hide or show the note list. This never deletes any notes."),
@@ -795,22 +932,46 @@ class MainWindow(QMainWindow):
     def _load_initial_note(self) -> None:
         notes = self.database.list_notes(sort=self._sort_mode, project_id=self.current_project_id)
         if not notes:
-            note = self.database.create_note(project_id=self.current_project_id)
-            notes = self.database.list_notes(sort=self._sort_mode, project_id=self.current_project_id)
-            target = note.id
-        else:
-            last_id = self.settings.last_note_id() if self.preferences.start_with_last_note else None
-            ids = {note.id for note in notes}
-            target = last_id if last_id in ids else notes[0].id
+            # Empty projects are valid. Do not silently recreate an "Untitled Note"
+            # after the user deleted the final note.
+            self.sidebar.set_notes([], None)
+            self._show_empty_note_state()
+            return
+        last_id = self.settings.last_note_id() if self.preferences.start_with_last_note else None
+        ids = {note.id for note in notes}
+        target = last_id if last_id in ids else notes[0].id
         self.sidebar.set_notes(notes, target)
         self.open_note(target)
-
     def refresh_sidebar(self, selected_id: int | None = None) -> None:
         notes = self.database.list_notes(self._search_term, self._sort_mode, project_id=self.current_project_id)
-        self.sidebar.set_notes(notes, selected_id if selected_id is not None else self.current_note_id)
+        requested_id = selected_id if selected_id is not None else self.current_note_id
+        visible_ids = {note.id for note in notes}
+
+        # A note may disappear from the visible list because of a search/filter or
+        # because it was deleted. In that situation there must not be an editor on
+        # the right with no matching selection on the left. Save first, then show
+        # the explicit empty state.
+        if requested_id is not None and requested_id not in visible_ids:
+            if requested_id == self.current_note_id:
+                self.flush_pending_saves()
+            self.sidebar.set_notes(notes, None)
+            self._show_empty_note_state()
+            return
+
+        self.sidebar.set_notes(notes, requested_id)
+        if requested_id is None:
+            self._show_empty_note_state()
+
+    def _clear_note_selection(self) -> None:
+        if self.current_note_id is None:
+            self._show_empty_note_state()
+            return
+        self.flush_pending_saves()
+        self._show_empty_note_state()
 
     def open_note(self, note_id: int) -> None:
         if note_id == self.current_note_id and not self._loading_note:
+            self.note_detail_stack.setCurrentWidget(self.note_editor_page)
             self._navigate("notes")
             return
         self.flush_pending_saves()
@@ -822,12 +983,22 @@ class MainWindow(QMainWindow):
             self._set_current_project(note.project_id, reload_note=False)
         self._loading_note = True
         try:
+            self.note_detail_stack.setCurrentWidget(self.note_editor_page)
+            for widget in (
+                self.title_edit, self.editor, self.note_favorite_button,
+                self.note_history_button, self.note_tags_editor, self.note_link_button,
+            ):
+                widget.setEnabled(True)
+            self.title_edit.setPlaceholderText(DEFAULT_NOTE_TITLE)
             self.current_note_id = note.id
             self.title_edit.setText(note.title)
             self.editor.setHtml(note.content_html) if note.content_html else self.editor.clear()
             self.diagram.load_data(self.database.get_diagram(note.id))
             self._apply_note_diagram_statuses()
             self.settings.set_last_note_id(note.id)
+            self.note_tags_editor.set_tags(self.database.get_tags("note", note.id))
+            self.note_favorite_button.setText("★" if self.database.is_favorite("note", note.id) else "☆")
+            self.database.touch_recent("note", note.id, note.title, note.project_id)
             self._dirty = False
             self._diagram_dirty = False
             self.save_label.setText(self.i18n.t("status.saved"))
@@ -899,18 +1070,29 @@ class MainWindow(QMainWindow):
             self.database.soft_delete_note(note_id)
             if note_id == self.current_note_id:
                 self.current_note_id = None
+
+            # Prefer the currently filtered list. If the filter hides every
+            # remaining note, clear it and select a real note instead of creating
+            # a replacement default note.
             notes = self.database.list_notes(self._search_term, self._sort_mode, project_id=self.current_project_id)
-            if not notes:
-                created = self.database.create_note(project_id=self.current_project_id)
-                notes = self.database.list_notes(self._search_term, self._sort_mode, project_id=self.current_project_id)
-                target = created.id
-            else:
-                target = notes[0].id
+            if not notes and self._search_term:
+                all_notes = self.database.list_notes("", self._sort_mode, project_id=self.current_project_id)
+                if all_notes:
+                    self._search_term = ""
+                    self.sidebar.search.blockSignals(True)
+                    self.sidebar.search.clear()
+                    self.sidebar.search.blockSignals(False)
+                    notes = all_notes
+
+            target = notes[0].id if notes else None
             self.sidebar.set_notes(notes, target)
-            self.open_note(target)
+            if target is not None:
+                self.open_note(target)
+            else:
+                self._show_empty_note_state()
+            self.dashboard_page.refresh()
         except DatabaseError as exc:
             self._show_database_error(exc)
-
     def open_trash(self) -> None:
         self.flush_pending_saves()
         self.decisions_page.save_current()
@@ -925,6 +1107,47 @@ class MainWindow(QMainWindow):
             self.architecture_page.set_project(self.current_project_id)
             self.review_page.set_project(self.current_project_id)
             self.refresh_review_inbox()
+
+    def _show_empty_note_state(self) -> None:
+        """Clear the editor without creating a database note.
+
+        This is used when a project legitimately has zero notes. The + button is
+        the only operation that creates a new note in this state.
+        """
+        self.autosave_timer.stop()
+        self.diagram_timer.stop()
+        self._loading_note = True
+        try:
+            self.current_note_id = None
+            self.settings.set_last_note_id(None)
+            self.note_detail_stack.setCurrentWidget(self.note_empty_page)
+            self._dirty = False
+            self._diagram_dirty = False
+            self.title_edit.blockSignals(True)
+            self.title_edit.clear()
+            self.title_edit.setPlaceholderText(
+                "Not seçin veya + ile yeni not oluşturun" if self.i18n.language == "tr"
+                else "Select a note or create one with +"
+            )
+            self.title_edit.blockSignals(False)
+            self.editor.blockSignals(True)
+            self.editor.clear()
+            self.editor.blockSignals(False)
+            self.diagram.load_data({})
+            self.note_tags_editor.set_tags([])
+            self.note_favorite_button.setText("☆")
+            self.save_label.setText(self.i18n.t("status.saved"))
+            self._update_stats()
+            self.refresh_note_resources()
+        finally:
+            self._loading_note = False
+        # Prevent editing controls from suggesting that an unsaved/default note
+        # exists. Creating a note via + immediately re-enables them in open_note.
+        for widget in (
+            self.title_edit, self.editor, self.note_favorite_button,
+            self.note_history_button, self.note_tags_editor, self.note_link_button,
+        ):
+            widget.setEnabled(False)
 
     def save_current_note(self) -> None:
         self.autosave_timer.stop()
@@ -1003,6 +1226,19 @@ class MainWindow(QMainWindow):
             self.stats_label.setText(f"Kelime: {words}  •  Satır: {lines}  •  Sat {line}, Süt {col}")
         else:
             self.stats_label.setText(f"Words: {words}  •  Lines: {lines}  •  Ln {line}, Col {col}")
+
+    def _dispatch_edit_command(self, command: str) -> None:
+        """Apply standard edit shortcuts to the control that actually has focus."""
+        widget = QApplication.focusWidget()
+        if widget is None:
+            widget = self.editor
+        method = getattr(widget, command, None)
+        if callable(method):
+            method()
+            return
+        fallback = getattr(self.editor, command, None)
+        if callable(fallback):
+            fallback()
 
     def find_in_note(self) -> None:
         self.tabs.setCurrentIndex(0)
@@ -1092,6 +1328,11 @@ class MainWindow(QMainWindow):
         dialog.preferencesChanged.connect(self._settings_page_changed)
         dialog.preferencesRequested.connect(self.open_preferences)
         dialog.githubRequested.connect(lambda: (dialog.accept(), self._navigate("github")))
+        dialog.backupRequested.connect(self._open_backup_manager)
+        dialog.exportProjectRequested.connect(self._export_current_project)
+        dialog.importProjectRequested.connect(self._import_project)
+        dialog.diagnosticsRequested.connect(self._open_repository_diagnostics)
+        dialog.shortcutsChanged.connect(self._refresh_command_shortcuts)
         current_widget = self.page_stack.currentWidget()
         current_key = next((key for key, page in self.pages.items() if page is current_widget), "dashboard")
         try:
@@ -1140,7 +1381,7 @@ class MainWindow(QMainWindow):
         self.set_theme(prefs.theme, persist=persist)
 
     def _set_auto_checkbox(self, enabled: bool) -> None:
-        self.editor.set_auto_checkbox(enabled)
+        self.editor.set_auto_checkbox(enabled, apply_to_document=True)
         self.preferences.auto_checkbox_default = enabled
         self.settings.set_value("editor/auto_checkbox_default", enabled)
 
@@ -1280,9 +1521,12 @@ class MainWindow(QMainWindow):
         self.current_project_id = project_id
         self.settings.set_value("session/last_project_id", project_id)
         self._refresh_project_selector()
+        self.dashboard_page.set_project(project_id)
         self.decisions_page.set_project(project_id)
         self.architecture_page.set_project(project_id)
         self.project_detail_page.set_project(project_id)
+        self.activity_page.set_project(project_id)
+        self.health_page.set_project(project_id)
         self.review_page.set_project(project_id)
         self.github_page.set_current_project(project_id)
         self._search_term = ""
@@ -1291,19 +1535,16 @@ class MainWindow(QMainWindow):
         self.sidebar.search.blockSignals(False)
         if reload_note:
             notes = self.database.list_notes(sort=self._sort_mode, project_id=project_id)
-            if not notes:
-                note = self.database.create_note(project_id=project_id)
-                notes = self.database.list_notes(sort=self._sort_mode, project_id=project_id)
-                target = note.id
-            else:
-                target = notes[0].id
+            target = notes[0].id if notes else None
             self.current_note_id = None
             self.sidebar.set_notes(notes, target)
-            self.open_note(target)
+            if target is not None:
+                self.open_note(target)
+            else:
+                self._show_empty_note_state()
         else:
             self.refresh_sidebar(self.current_note_id)
         self.dashboard_page.refresh()
-
     def _navigate(self, key: str) -> None:
         if key == "settings":
             self.open_settings()
@@ -1343,20 +1584,31 @@ class MainWindow(QMainWindow):
         elif key == "architecture":
             self.architecture_page.refresh()
             self.architecture_page.set_review_summaries(self._review_summaries)
+        elif key == "activity":
+            self.activity_page.set_project(self.current_project_id)
+            self.activity_page.refresh()
+        elif key == "health":
+            self.health_page.set_project(self.current_project_id)
+            self.health_page.set_summaries(self._review_summaries)
         elif key == "review":
             self.review_page.set_project(self.current_project_id)
             self.refresh_review_inbox()
+        elif key == "teams":
+            self.teams_page.refresh()
         elif key == "github":
             self.github_page.update_connection_state()
             self.github_page.render_cached()
 
     def _open_project_detail(self, project_id: int) -> None:
         self._set_current_project(project_id)
+        project = self.database.get_project(project_id)
+        if project:
+            self.database.touch_recent("project", project.id, project.name, project.id, project.description)
         self.project_detail_page.set_project(project_id)
         self._navigate("project_detail")
 
     def _project_section_requested(self, section: str) -> None:
-        if section in {"notes", "decisions", "architecture", "review"}:
+        if section in {"notes", "decisions", "architecture", "activity", "health", "review"}:
             self._navigate(section)
         elif section == "overview":
             self._navigate("project_detail")
@@ -1390,6 +1642,293 @@ class MainWindow(QMainWindow):
                 self._navigate("decisions")
                 self.decisions_page.refresh(item_id)
                 self.decisions_page.open_decision(item_id)
+        elif kind == "code":
+            link = self.database.get_resource_link(item_id)
+            if link:
+                self._open_code_resource(link.project_id, link.repository_id, link.target_value)
+        elif kind in {"repository", "commit"}:
+            repo = self.database.get_repository(item_id)
+            if repo:
+                projects = self.database.list_projects_for_repository(repo.id)
+                project_id = projects[0].id if projects else self.current_project_id
+                self._open_code_resource(project_id, repo.id, "")
+
+    def _open_recent_item(self, resource_type: str, resource_id: str) -> None:
+        try:
+            if resource_type == "project":
+                self._open_project_detail(int(resource_id))
+            elif resource_type == "note":
+                self._activate_search_result("note", int(resource_id))
+            elif resource_type == "decision":
+                self._activate_search_result("decision", int(resource_id))
+            elif resource_type == "architecture":
+                self._open_linked_knowledge("diagram_item", "", resource_id)
+            elif resource_type == "repository":
+                self._activate_search_result("repository", int(resource_id))
+            elif resource_type == "code":
+                repo_id, path = resource_id.split(":", 1)
+                self._open_code_resource(self.current_project_id, int(repo_id), path)
+        except (ValueError, TypeError):
+            return
+
+    def _save_note_tags(self, tags: list[str]) -> None:
+        if self.current_note_id is None or self._loading_note:
+            return
+        self.database.set_tags("note", self.current_note_id, tags)
+        self.refresh_sidebar(self.current_note_id)
+
+    def _toggle_note_favorite(self) -> None:
+        if self.current_note_id is None:
+            return
+        favorite = not self.database.is_favorite("note", self.current_note_id)
+        self.database.set_favorite("note", self.current_note_id, favorite, self.current_project_id)
+        self.note_favorite_button.setText("★" if favorite else "☆")
+        self.refresh_sidebar(self.current_note_id)
+        self.dashboard_page.refresh()
+
+    def _open_note_history(self) -> None:
+        if self.current_note_id is not None:
+            ResourceHistoryDialog(self.database, "note", self.current_note_id, None, self.i18n, self).exec()
+
+    def _open_code_resource(self, project_id: int, repository_id: int, path: str) -> None:
+        self._page_before_code = next((key for key, page in self.pages.items() if page is self.page_stack.currentWidget()), "notes")
+        self._set_current_project(project_id, reload_note=False)
+        self.code_resource_page.set_review_summaries(self._review_summaries)
+        self.code_resource_page.open_resource(project_id, repository_id, path)
+        self._navigate("code_resource")
+
+    def _open_code_resource_link(self, link) -> None:
+        self._open_code_resource(link.project_id, link.repository_id, link.target_value)
+
+    def _back_from_code_resource(self) -> None:
+        target = getattr(self, "_page_before_code", "notes")
+        self._navigate(target if target in self.pages and target != "code_resource" else "notes")
+
+    def _open_linked_knowledge(self, resource_type: str, resource_id: str, resource_parent_id: str) -> None:
+        if resource_type == "note":
+            try:
+                self.open_note(int(resource_id)); self._navigate("notes")
+            except ValueError:
+                return
+        elif resource_type == "decision":
+            try:
+                decision = self.database.get_decision(int(resource_id))
+            except ValueError:
+                decision = None
+            if decision:
+                self._set_current_project(decision.project_id, reload_note=False)
+                self._navigate("decisions")
+                self.decisions_page.refresh(decision.id)
+                self.decisions_page.open_decision(decision.id)
+        elif resource_type == "diagram_item":
+            try:
+                note_id = int(resource_parent_id)
+            except ValueError:
+                return
+            note = self.database.get_note(note_id)
+            if note and note.project_id:
+                self._set_current_project(note.project_id, reload_note=False)
+                self._navigate("architecture")
+                self.architecture_page.refresh()
+                for index in range(self.architecture_page.list.count()):
+                    item = self.architecture_page.list.item(index)
+                    if int(item.data(Qt.ItemDataRole.UserRole)) == note_id:
+                        self.architecture_page.list.setCurrentItem(item)
+                        break
+
+    def _command_label(self, command_id: str, fallback: str) -> str:
+        tr = self.i18n.language == "tr"
+        translations = {
+            "command_palette": "Komut Paleti", "create_decision": "Karar Oluştur", "open_projects": "Proje Aç",
+            "search_notes": "Notlarda Ara", "review_inbox": "İnceleme Kutusu", "switch_theme": "Tema Değiştir",
+            "open_repository": "Repository Aç",
+        }
+        return translations.get(command_id, fallback) if tr else fallback
+
+    def _open_command_palette(self) -> None:
+        commands = []
+        for command_id, (label, default_shortcut) in COMMAND_SHORTCUTS.items():
+            if command_id == "command_palette":
+                continue
+            commands.append((command_id, self._command_label(command_id, label), self.settings.command_shortcut(command_id, default_shortcut)))
+        dialog = CommandPaletteDialog(commands, self.i18n, self)
+        dialog.commandActivated.connect(self._execute_command)
+        dialog.exec()
+
+    def _execute_command(self, command_id: str) -> None:
+        if command_id == "create_decision":
+            self._navigate("decisions"); self.decisions_page.new_decision()
+        elif command_id == "open_projects":
+            self._navigate("projects")
+        elif command_id == "search_notes":
+            self._navigate("notes"); self.sidebar.search.setFocus(); self.sidebar.search.selectAll()
+        elif command_id == "review_inbox":
+            self._navigate("review")
+        elif command_id == "switch_theme":
+            values = [value for _label, value in THEME_OPTIONS]
+            current = self.preferences.theme
+            idx = values.index(current) if current in values else 0
+            self.set_theme(values[(idx + 1) % len(values)])
+        elif command_id == "open_repository":
+            self._navigate("project_detail")
+
+    def _refresh_command_shortcuts(self) -> None:
+        for command_id, (_label, default_shortcut) in COMMAND_SHORTCUTS.items():
+            action = self.command_actions.get(command_id)
+            if action:
+                action.setShortcut(QKeySequence(self.settings.command_shortcut(command_id, default_shortcut)))
+
+    def _refresh_notification_button(self) -> None:
+        count = self.database.unread_notification_count()
+        self.notification_button.setText(f"🔔 {count}" if count else "🔔")
+        self.notification_button.setToolTip(
+            f"{count} okunmamış uygulama bildirimi" if self.i18n.language == "tr" else f"{count} unread in-app notification(s)"
+        )
+
+    def _open_notifications(self) -> None:
+        dialog = NotificationCenterDialog(self.database, self.i18n, self)
+        dialog.teamRequested.connect(lambda: self._navigate("teams"))
+        dialog.exec()
+        self._refresh_notification_button()
+
+    def _show_onboarding(self) -> None:
+        # This is a first-launch tour, not a recurring startup dialog. Persist the
+        # marker before showing it so even closing/skipping the tour does not make
+        # it reappear on every application launch.
+        shown = str(self.settings.value("onboarding/shown", "0")).lower() in {"1", "true", "yes"}
+        if shown:
+            return
+        self.settings.set_value("onboarding/shown", True)
+        self.settings.sync()
+        dialog = OnboardingDialog(self.i18n, self)
+        dialog.navigateRequested.connect(self._onboarding_navigate)
+        self._onboarding_dialog = dialog
+        dialog.finished.connect(lambda _result: setattr(self, "_onboarding_dialog", None))
+        # Keep the tour modeless: its per-step action can navigate the main window
+        # immediately, so the user can see the page being explained while the tour
+        # remains available.
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _onboarding_navigate(self, page_key: str) -> None:
+        if page_key == "project_detail":
+            self.project_detail_page.set_project(self.current_project_id)
+        self._navigate(page_key)
+
+    def _update_online_navigation(self) -> None:
+        session = self.supabase_client.session
+        username = (session.username or session.email) if session else ""
+        if hasattr(self, "global_navigation"):
+            self.global_navigation.set_online_state(bool(session), username)
+
+    def _open_online(self) -> None:
+        tr = self.i18n.language == "tr"
+        if not self.supabase_client.configured:
+            QMessageBox.information(
+                self, "DevNest Online",
+                ("Supabase bağlantısı için uygulamayı şu ortam değişkenleriyle başlatın:\n\n"
+                 "DEVNEST_SUPABASE_URL\nDEVNEST_SUPABASE_PUBLISHABLE_KEY\n\n"
+                 "Service role / secret key KULLANMAYIN.") if tr else
+                ("Start DevNest with these environment variables:\n\n"
+                 "DEVNEST_SUPABASE_URL\nDEVNEST_SUPABASE_PUBLISHABLE_KEY\n\n"
+                 "Do NOT use a service-role / secret key."))
+            return
+        if not self.supabase_client.signed_in:
+            account = CloudAccountDialog(self.supabase_client, self.i18n, self)
+            if account.exec() != QDialog.DialogCode.Accepted or not self.supabase_client.signed_in:
+                self._update_online_navigation(); return
+        # Online backup is manual and works from the persisted local state.
+        # Flush editor buffers before opening the modal so a conflict decision can
+        # never compare against an older unsaved note/decision snapshot.
+        self.flush_pending_saves()
+        self.decisions_page.save_current()
+        self.architecture_page.save()
+        self._update_online_navigation()
+        dialog = CloudSyncDialog(self.cloud_service, self.i18n, self)
+        dialog.signedOut.connect(self._online_signed_out)
+        pulled_from_cloud = {"value": False}
+        dialog.localContentChanged.connect(lambda: pulled_from_cloud.__setitem__("value", True))
+        dialog.exec()
+        self._update_online_navigation()
+        if pulled_from_cloud["value"] and self.current_project_id:
+            # The modal prevented further local editing after the flush above, so
+            # it is safe to reload the current project from SQLite now.
+            self.current_note_id = None
+            self._set_current_project(self.current_project_id, reload_note=True)
+        self.teams_page.refresh()
+
+    def _online_signed_out(self) -> None:
+        self.global_navigation.set_team_badge(0)
+        self._update_online_navigation()
+        self.teams_page.refresh()
+
+    def _cloud_tick(self) -> None:
+        if not self.supabase_client.configured or not self.supabase_client.signed_in:
+            self._update_online_navigation()
+            return
+        try:
+            self.supabase_client.ensure_session()
+            self._update_online_navigation()
+            notifications = self.cloud_service.cloud_notifications(unread_only=True)
+            for item in notifications:
+                event_type = str(item.get("event_type") or "cloud")
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                project_id = None
+                title = str(item.get("title") or "DevNest Online")
+                detail = str(item.get("detail") or "")
+                if event_type == "team_invite":
+                    title = "Ekip daveti" if self.i18n.language == "tr" else "Team invitation"
+                self.database.add_notification(
+                    project_id, event_type, title, detail,
+                    notification_key=f"cloud:{item.get('id')}"
+                )
+            if notifications:
+                self.cloud_service.mark_cloud_notifications_read()
+                self._refresh_notification_button()
+            pending = self.cloud_service.pending_invitations()
+            self.global_navigation.set_team_badge(len(pending))
+            # DevNest Online is intentionally manual-sync only. Local project,
+            # note, decision and architecture edits stay on this device until
+            # the user explicitly presses the Online Backup button. This also
+            # gives conflict detection a clear synchronization boundary.
+        except SupabaseError as exc:
+            logger.warning("DevNest Online refresh failed: %s", exc)
+
+    def _open_backup_manager(self) -> None:
+        dialog = BackupManagerDialog(self.backup_manager, self.i18n, self)
+        dialog.restored.connect(self._workspace_restored)
+        dialog.exec()
+
+    def _export_current_project(self) -> None:
+        dialog = ExportProjectDialog(self.project_transfer, self.current_project_id, self.i18n, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.output_path:
+            QMessageBox.information(self, "Export", (f"Proje dışa aktarıldı:\n{dialog.output_path}" if self.i18n.language == "tr" else f"Project exported:\n{dialog.output_path}"))
+
+    def _import_project(self) -> None:
+        source, _ = QFileDialog.getOpenFileName(self, "Projeyi İçe Aktar" if self.i18n.language == "tr" else "Import Project", "", "DevNest Project (*.zip);;All Files (*)")
+        if not source:
+            source = QFileDialog.getExistingDirectory(self, "Markdown klasörü seç" if self.i18n.language == "tr" else "Choose Markdown folder")
+        if not source:
+            return
+        try:
+            dialog = ImportProjectDialog(self.project_transfer, source, self.i18n, self)
+        except Exception as exc:
+            QMessageBox.critical(self, "Import", str(exc)); return
+        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.project_id:
+            self._projects_changed()
+            self._open_project_detail(int(dialog.project_id))
+
+    def _open_repository_diagnostics(self) -> None:
+        RepositoryDiagnosticsDialog(self.database, self.current_project_id, self.i18n, self).exec()
+
+    def _workspace_restored(self) -> None:
+        self.current_note_id = None
+        self.current_project_id = self.database.default_project_id()
+        self._refresh_project_selector()
+        self._set_current_project(self.current_project_id)
+        self._navigate("dashboard")
+        self.refresh_review_inbox()
 
     def _add_local_repository_async(self, project_id: int, path: str) -> None:
         self.statusBar().showMessage("Yerel Git deposu kontrol ediliyor…" if self.i18n.language == "tr" else "Checking local Git repository…")
@@ -1540,10 +2079,13 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
         if self.current_note_id is None:
             self.note_status_badge.set_status(ReviewStatus.NOT_REVIEWED)
+            self.note_view_changes_button.setEnabled(False)
+            self.note_mark_reviewed_button.setEnabled(False)
             return
         links = self.database.list_resource_links("note", self.current_note_id)
         for link in links:
             chip = ResourceChip(link, self.i18n)
+            chip.openRequested.connect(lambda link_id: self._open_code_resource_link(self.database.get_resource_link(link_id)) if self.database.get_resource_link(link_id) else None)
             chip.unlinkRequested.connect(self._unlink_resource)
             self.note_chips_layout.addWidget(chip)
         self.note_chips_layout.addStretch(1)
@@ -1907,13 +2449,37 @@ class MainWindow(QMainWindow):
         self.dashboard_page.refresh(needs, current)
         self.refresh_note_resources()
         self.decisions_page.set_review_summaries(summaries)
-        self._refresh_decision_status()
         self.architecture_page.set_review_summaries(summaries)
+        self.health_page.set_summaries(summaries)
+        self.code_resource_page.set_review_summaries(summaries)
+        self.activity_page.refresh()
         self._apply_note_diagram_statuses()
+        for summary in summaries:
+            link = summary.resource_link
+            if summary.status == ReviewStatus.NEEDS_REVIEW and link.resource_type == "decision":
+                current_sha = summary.current_sha or "unknown"
+                unique_key = f"{link.repository_id}:{current_sha}:{link.target_type}:{link.target_value}"
+                self.database.add_decision_history_once(
+                    int(link.resource_id),
+                    "needs_review",
+                    "Needs review",
+                    f"{link.target_value or 'repository'} @ {current_sha[:12]}",
+                    unique_key=unique_key,
+                    metadata={"repository_id": link.repository_id, "sha": current_sha},
+                )
         # Keep currently visible project pages in sync as soon as the background
         # comparison finishes; navigation is never used as a refresh mechanism.
         self.project_detail_page.set_project(self.current_project_id)
         self.projects_page.refresh()
+        if needs > 0:
+            signature = ",".join(sorted(f"{x.resource_link.resource_type}:{x.resource_link.resource_id}:{x.current_sha or ''}" for x in summaries if x.status == ReviewStatus.NEEDS_REVIEW))
+            self.database.add_notification(
+                self.current_project_id, "needs_review",
+                f"{needs} karar/not yeniden incelenmeli" if self.i18n.language == "tr" else f"{needs} knowledge item(s) need review",
+                "Bağlı kod, son review noktasından sonra değişti." if self.i18n.language == "tr" else "Linked code changed after the last review point.",
+                notification_key=f"needs-review:{self.current_project_id}:{signature}",
+            )
+        self._refresh_notification_button()
         message = (
             f"Depo kontrolü tamamlandı · {needs} öğe yeniden incelenmeli."
             if self.i18n.language == "tr" else
@@ -2027,11 +2593,15 @@ class MainWindow(QMainWindow):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
+        reviewed_repositories: set[int] = set()
         for link in links:
+            if link.repository_id in reviewed_repositories:
+                continue
             current = resolved.get(link.repository_id)
             if current:
                 sha, branch = current
                 self.review_service.mark_reviewed(link, sha, branch)
+                reviewed_repositories.add(link.repository_id)
         self.statusBar().showMessage("✓ Takip başlangıç noktası güncellendi." if self.i18n.language == "tr" else "✓ Review baseline updated.", 2500)
         self.refresh_review_inbox()
 
@@ -2109,6 +2679,8 @@ class MainWindow(QMainWindow):
             self.repository_poll_timer.stop()
         if hasattr(self, "local_watch_timer"):
             self.local_watch_timer.stop()
+        if hasattr(self, "cloud_poll_timer"):
+            self.cloud_poll_timer.stop()
         self.settings.set_value("window/geometry", self.saveGeometry())
         self.settings.set_value("window/splitter", self.splitter.saveState())
         self.settings.set_value("window/tab_index", self.tabs.currentIndex())

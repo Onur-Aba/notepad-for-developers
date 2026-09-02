@@ -46,7 +46,7 @@ class Database:
     are never rewritten.
     """
 
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def __init__(self, path: Path | str | None = None) -> None:
         if path is None:
@@ -406,6 +406,129 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS idx_notes_project_trash ON notes(trashed_with_project_id, is_deleted, updated_at DESC)"
             )
             self.connection.execute("PRAGMA user_version = 7")
+
+    def _migrate_to_v8(self) -> None:
+        """Persistent timelines, tags, favorites, recent work, notifications and backlinks."""
+        with self.connection:
+            activity_columns = {str(row[1]) for row in self.connection.execute("PRAGMA table_info(activity_events)").fetchall()}
+            for column, definition in (
+                ("repository_id", "INTEGER"),
+                ("resource_type", "TEXT"),
+                ("resource_id", "TEXT"),
+                ("metadata_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ):
+                if column not in activity_columns:
+                    self.connection.execute(f"ALTER TABLE activity_events ADD COLUMN {column} {definition}")
+
+            self.connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS decision_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    decision_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(decision_id) REFERENCES decisions(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS review_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER NOT NULL,
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    resource_parent_id TEXT NOT NULL DEFAULT '',
+                    repository_id INTEGER NOT NULL,
+                    baseline_sha TEXT NOT NULL,
+                    branch TEXT,
+                    reviewed_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY(repository_id) REFERENCES repositories(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS resource_tags (
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    tag_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(resource_type, resource_id, tag_id),
+                    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS favorites (
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    project_id INTEGER,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(resource_type, resource_id),
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS recent_items (
+                    resource_type TEXT NOT NULL,
+                    resource_id TEXT NOT NULL,
+                    project_id INTEGER,
+                    title TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    opened_at TEXT NOT NULL,
+                    PRIMARY KEY(resource_type, resource_id),
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id INTEGER,
+                    event_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    notification_key TEXT UNIQUE,
+                    is_read INTEGER NOT NULL DEFAULT 0 CHECK (is_read IN (0, 1)),
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_activity_project_repo_created
+                    ON activity_events(project_id, repository_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_activity_resource_created
+                    ON activity_events(resource_type, resource_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_decision_history_created
+                    ON decision_history(decision_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_review_history_resource
+                    ON review_history(resource_type, resource_id, resource_parent_id, reviewed_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_resource_tags_resource
+                    ON resource_tags(resource_type, resource_id);
+                CREATE INDEX IF NOT EXISTS idx_recent_project_opened
+                    ON recent_items(project_id, opened_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_notifications_unread
+                    ON notifications(is_read, created_at DESC);
+
+                PRAGMA user_version = 8;
+                """
+            )
+
+            # Seed the new review-history table from the current baselines so an
+            # upgraded workspace immediately has a useful first historical point.
+            self.connection.execute(
+                """INSERT INTO review_history(project_id,resource_type,resource_id,resource_parent_id,repository_id,baseline_sha,branch,reviewed_at)
+                   SELECT rl.project_id, rb.resource_type, rb.resource_id, rb.resource_parent_id, rb.repository_id,
+                          rb.baseline_sha, rb.branch, rb.reviewed_at
+                   FROM review_baselines rb
+                   JOIN resource_links rl ON rl.resource_type=rb.resource_type AND rl.resource_id=rb.resource_id
+                        AND rl.resource_parent_id=rb.resource_parent_id AND rl.repository_id=rb.repository_id
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM review_history h WHERE h.resource_type=rb.resource_type AND h.resource_id=rb.resource_id
+                         AND h.resource_parent_id=rb.resource_parent_id AND h.repository_id=rb.repository_id
+                         AND h.baseline_sha=rb.baseline_sha AND h.reviewed_at=rb.reviewed_at
+                   )
+                   GROUP BY rb.id"""
+            )
 
     def _is_legacy_v5_schema(self) -> bool:
         """Detect the *shape* of the older schema-5 database.
@@ -1160,7 +1283,8 @@ class Database:
                         WHERE n2.project_id=p.id AND n2.is_deleted=0) diagram_count,
                    (SELECT MAX(created_at) FROM activity_events a WHERE a.project_id=p.id) last_activity
             FROM projects p WHERE p.archived_at IS NULL AND p.trashed_at IS NULL
-            ORDER BY p.updated_at DESC
+            ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='project' AND f.resource_id=CAST(p.id AS TEXT)) DESC,
+                     p.updated_at DESC
             """
         ).fetchall()
         return [
@@ -1177,11 +1301,18 @@ class Database:
         safe_name = name.strip()
         if not safe_name:
             raise DatabaseError("Project name cannot be empty.")
+        project = self.get_project(project_id)
+        now = utc_now_iso()
         with self.connection:
             self.connection.execute(
                 "UPDATE projects SET name=?, description=?, updated_at=? WHERE id=?",
-                (safe_name, description.strip(), utc_now_iso(), project_id),
+                (safe_name, description.strip(), now, project_id),
             )
+            if project and (project.name != safe_name or project.description != description.strip()):
+                self.connection.execute(
+                    "INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json) VALUES (?, 'project_updated', ?, ?, ?, 'project', ?, '{}')",
+                    (project_id, safe_name, description.strip(), now, str(project_id)),
+                )
 
     def archive_project(self, project_id: int) -> None:
         with self.connection:
@@ -1340,6 +1471,11 @@ class Database:
                     (safe_title, content_html, content_plain, now, now, project_id),
                 )
                 self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, project_id))
+                self.connection.execute(
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
+                       VALUES (?, 'note_created', ?, '', ?, 'note', ?, '{}')""",
+                    (project_id, safe_title, now, str(cursor.lastrowid)),
+                )
             note = self.get_note(int(cursor.lastrowid))
             if note is None:
                 raise DatabaseError("Created note could not be reloaded.")
@@ -1357,19 +1493,35 @@ class Database:
     def update_note(self, note_id: int, title: str, content_html: str, content_plain: str) -> None:
         now = utc_now_iso()
         safe_title = title.strip() or DEFAULT_NOTE_TITLE
+        before = self.get_note(note_id)
+        if before is None:
+            raise DatabaseError("The note no longer exists or is in Trash.")
+        changed_title = before.title != safe_title
+        changed_content = before.content_html != content_html or before.content_plain != content_plain
+        if not changed_title and not changed_content:
+            return
         try:
             with self.connection:
                 cursor = self.connection.execute(
-                    """
-                    UPDATE notes SET title=?, content_html=?, content_plain=?, updated_at=?
-                    WHERE id=? AND is_deleted=0
-                    """, (safe_title, content_html, content_plain, now, note_id),
+                    """UPDATE notes SET title=?, content_html=?, content_plain=?, updated_at=?
+                       WHERE id=? AND is_deleted=0""",
+                    (safe_title, content_html, content_plain, now, note_id),
                 )
                 if cursor.rowcount == 0:
                     raise DatabaseError("The note no longer exists or is in Trash.")
-                row = self.connection.execute("SELECT project_id FROM notes WHERE id=?", (note_id,)).fetchone()
-                if row and row["project_id"]:
-                    self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, row["project_id"]))
+                project_id = before.project_id
+                if project_id:
+                    self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, project_id))
+                    detail_bits = []
+                    if changed_title:
+                        detail_bits.append(f"{before.title} → {safe_title}")
+                    if changed_content:
+                        detail_bits.append("content updated")
+                    self.connection.execute(
+                        """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
+                           VALUES (?, 'note_updated', ?, ?, ?, 'note', ?, '{}')""",
+                        (project_id, safe_title, " · ".join(detail_bits), now, str(note_id)),
+                    )
         except DatabaseError:
             raise
         except sqlite3.Error as exc:
@@ -1402,10 +1554,14 @@ class Database:
             params.append(project_id)
         term = search.strip()
         if term:
-            where.append("(title LIKE ? COLLATE NOCASE OR content_plain LIKE ? COLLATE NOCASE)")
+            where.append("""(title LIKE ? COLLATE NOCASE OR content_plain LIKE ? COLLATE NOCASE OR EXISTS(
+                SELECT 1 FROM resource_tags rt JOIN tags t ON t.id=rt.tag_id
+                WHERE rt.resource_type='note' AND rt.resource_id=CAST(notes.id AS TEXT)
+                  AND t.name LIKE ? COLLATE NOCASE))""")
             like = f"%{term}%"
-            params.extend([like, like])
-        order_by = "updated_at DESC" if sort == "updated" else "title COLLATE NOCASE ASC, updated_at DESC"
+            params.extend([like, like, like])
+        favorite_order = "EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='note' AND f.resource_id=CAST(notes.id AS TEXT)) DESC, "
+        order_by = favorite_order + ("updated_at DESC" if sort == "updated" else "title COLLATE NOCASE ASC, updated_at DESC")
         rows = self.connection.execute(
             f"""
             SELECT id, title,
@@ -1439,6 +1595,11 @@ class Database:
         try:
             with self.connection:
                 self.connection.execute("UPDATE notes SET is_deleted=1, updated_at=? WHERE id=?", (utc_now_iso(), note_id))
+                # A deleted note must not linger in Dashboard > Continue working.
+                self.connection.execute(
+                    "DELETE FROM recent_items WHERE resource_type='note' AND resource_id=?",
+                    (str(note_id),),
+                )
         except sqlite3.Error as exc:
             raise DatabaseError(f"Could not move note to Trash: {exc}") from exc
 
@@ -1475,6 +1636,8 @@ class Database:
     def save_diagram(self, note_id: int, data: dict[str, object] | str) -> None:
         data_json = data if isinstance(data, str) else json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         now = utc_now_iso()
+        previous = self.connection.execute("SELECT data_json FROM diagrams WHERE note_id=?", (note_id,)).fetchone()
+        changed = previous is None or str(previous["data_json"]) != data_json
         try:
             with self.connection:
                 self.connection.execute(
@@ -1483,6 +1646,13 @@ class Database:
                     ON CONFLICT(note_id) DO UPDATE SET data_json=excluded.data_json, updated_at=excluded.updated_at
                     """, (note_id, data_json, now),
                 )
+                if changed:
+                    note = self.connection.execute("SELECT project_id,title FROM notes WHERE id=?", (note_id,)).fetchone()
+                    if note:
+                        self.connection.execute(
+                            "INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json) VALUES (?, 'architecture_updated', ?, '', ?, 'architecture', ?, '{}')",
+                            (int(note["project_id"]), str(note["title"]), now, str(note_id)),
+                        )
         except sqlite3.Error as exc:
             raise DatabaseError(f"Could not save diagram: {exc}") from exc
 
@@ -1527,7 +1697,7 @@ class Database:
         rows = self.connection.execute(
             f"""SELECT n.id,n.title,n.content_plain,n.created_at,n.updated_at,n.is_deleted,n.project_id
                 FROM diagrams d JOIN notes n ON n.id=d.note_id
-                WHERE {' AND '.join(where)} ORDER BY d.updated_at DESC""", params,
+                WHERE {' AND '.join(where)} ORDER BY n.updated_at DESC""", params,
         ).fetchall()
         return [NoteSummary(
             id=int(r["id"]), title=str(r["title"]), preview=str(r["content_plain"] or "")[:140],
@@ -1572,8 +1742,13 @@ class Database:
                 )
                 self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, project_id))
                 self.connection.execute(
-                    "INSERT INTO activity_events(project_id,event_type,title,detail,created_at) VALUES (?, 'decision_created', ?, ?, ?)",
-                    (project_id, key, safe_title, now),
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
+                       VALUES (?, 'decision_created', ?, ?, ?, 'decision', ?, '{}')""",
+                    (project_id, key, safe_title, now, str(decision_cursor.lastrowid)),
+                )
+                self.connection.execute(
+                    "INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at) VALUES (?, 'created', ?, ?, '{}', ?)",
+                    (decision_cursor.lastrowid, key, safe_title, now),
                 )
             return self.get_decision(int(decision_cursor.lastrowid))  # type: ignore[return-value]
         except sqlite3.Error as exc:
@@ -1600,12 +1775,15 @@ class Database:
             where.append("d.project_id=?")
             params.append(project_id)
         if search.strip():
-            where.append("(d.decision_key LIKE ? OR n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE)")
+            where.append("""(d.decision_key LIKE ? OR n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE OR EXISTS(
+                SELECT 1 FROM resource_tags rt JOIN tags t ON t.id=rt.tag_id
+                WHERE rt.resource_type='decision' AND rt.resource_id=CAST(d.id AS TEXT)
+                  AND t.name LIKE ? COLLATE NOCASE))""")
             like = f"%{search.strip()}%"
-            params.extend([like, like, like])
+            params.extend([like, like, like, like])
         rows = self.connection.execute(
             f"""SELECT d.*,n.title,n.content_html,n.content_plain FROM decisions d JOIN notes n ON n.id=d.note_id
-                WHERE {' AND '.join(where)} ORDER BY d.updated_at DESC""", params,
+                WHERE {' AND '.join(where)} ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='decision' AND f.resource_id=CAST(d.id AS TEXT)) DESC, d.updated_at DESC""", params,
         ).fetchall()
         return [Decision(
             id=int(r["id"]), project_id=int(r["project_id"]), note_id=int(r["note_id"]),
@@ -1618,14 +1796,38 @@ class Database:
         decision = self.get_decision(decision_id)
         if decision is None:
             raise DatabaseError("Decision not found.")
+        safe_title = title.strip() or "Untitled Decision"
+        changed_title = decision.title != safe_title
+        changed_status = decision.status != status
+        changed_content = decision.content_html != content_html or decision.content_plain != content_plain
+        if not (changed_title or changed_status or changed_content):
+            return
         now = utc_now_iso()
         with self.connection:
             self.connection.execute(
                 "UPDATE notes SET title=?,content_html=?,content_plain=?,updated_at=? WHERE id=?",
-                (title.strip() or "Untitled Decision", content_html, content_plain, now, decision.note_id),
+                (safe_title, content_html, content_plain, now, decision.note_id),
             )
             self.connection.execute("UPDATE decisions SET status=?,updated_at=? WHERE id=?", (status, now, decision_id))
             self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, decision.project_id))
+            events: list[tuple[str, str, str, dict[str, object]]] = []
+            if changed_title:
+                events.append(("title_changed", "Title changed", f"{decision.title} → {safe_title}", {"old": decision.title, "new": safe_title}))
+            if changed_status:
+                events.append(("status_changed", "Status changed", f"{decision.status} → {status}", {"old": decision.status, "new": status}))
+            if changed_content:
+                events.append(("content_updated", "Decision text updated", "", {}))
+            for event_type, event_title, detail, metadata in events:
+                payload = json.dumps(metadata, ensure_ascii=False, separators=(",", ":"))
+                self.connection.execute(
+                    "INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at) VALUES (?,?,?,?,?,?)",
+                    (decision_id, event_type, event_title, detail, payload, now),
+                )
+                self.connection.execute(
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
+                       VALUES (?,?,?,?,?,'decision',?,?)""",
+                    (decision.project_id, f"decision_{event_type}", f"{decision.decision_key} · {event_title}", detail, now, str(decision_id), payload),
+                )
 
     def delete_decision(self, decision_id: int) -> None:
         decision = self.get_decision(decision_id)
@@ -1646,6 +1848,10 @@ class Database:
                 # decision_commits / decision_pull_requests cascade from decisions.
                 self.connection.execute("DELETE FROM decisions WHERE id=?", (decision_id,))
                 self.connection.execute("DELETE FROM notes WHERE id=?", (decision.note_id,))
+                self.connection.execute(
+                    "DELETE FROM recent_items WHERE resource_type='decision' AND resource_id=?",
+                    (str(decision_id),),
+                )
                 self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, decision.project_id))
                 self.connection.execute(
                     "INSERT INTO activity_events(project_id,event_type,title,detail,created_at) VALUES (?, 'decision_deleted', ?, ?, ?)",
@@ -1723,16 +1929,20 @@ class Database:
 
     def list_repositories(self, project_id: int | None = None) -> list[Repository]:
         if project_id is None:
-            rows = self.connection.execute("SELECT * FROM repositories ORDER BY CASE WHEN last_pushed_at IS NULL OR last_pushed_at = '' THEN 1 ELSE 0 END, last_pushed_at DESC, updated_at DESC, COALESCE(full_name,name) COLLATE NOCASE").fetchall()
+            rows = self.connection.execute("SELECT * FROM repositories ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='repository' AND f.resource_id=CAST(repositories.id AS TEXT)) DESC, CASE WHEN last_pushed_at IS NULL OR last_pushed_at = '' THEN 1 ELSE 0 END, last_pushed_at DESC, updated_at DESC, COALESCE(full_name,name) COLLATE NOCASE").fetchall()
         else:
             rows = self.connection.execute(
                 """SELECT r.* FROM repositories r JOIN project_repositories pr ON pr.repository_id=r.id
-                   WHERE pr.project_id=? ORDER BY CASE WHEN r.last_pushed_at IS NULL OR r.last_pushed_at = '' THEN 1 ELSE 0 END, r.last_pushed_at DESC, r.updated_at DESC, COALESCE(r.full_name,r.name) COLLATE NOCASE""", (project_id,),
+                   WHERE pr.project_id=? ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='repository' AND f.resource_id=CAST(r.id AS TEXT)) DESC, CASE WHEN r.last_pushed_at IS NULL OR r.last_pushed_at = '' THEN 1 ELSE 0 END, r.last_pushed_at DESC, r.updated_at DESC, COALESCE(r.full_name,r.name) COLLATE NOCASE""", (project_id,),
             ).fetchall()
         return [self._repository_from_row(r) for r in rows]
 
     def link_repository_to_project(self, project_id: int, repository_id: int, monitored_branch: str | None = None) -> None:
         now = utc_now_iso()
+        existed = self.connection.execute(
+            "SELECT 1 FROM project_repositories WHERE project_id=? AND repository_id=?", (project_id, repository_id)
+        ).fetchone() is not None
+        repo = self.get_repository(repository_id)
         with self.connection:
             self.connection.execute(
                 """INSERT INTO project_repositories(project_id,repository_id,monitored_branch,created_at)
@@ -1740,11 +1950,26 @@ class Database:
                 (project_id, repository_id, monitored_branch, now),
             )
             self.connection.execute("UPDATE projects SET updated_at=? WHERE id=?", (now, project_id))
+            if not existed:
+                label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+                self.connection.execute(
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,metadata_json)
+                       VALUES (?, 'repository_linked', ?, ?, ?, ?, '{}')""",
+                    (project_id, label, monitored_branch or "", now, repository_id),
+                )
 
     def unlink_repository_from_project(self, project_id: int, repository_id: int) -> None:
+        repo = self.get_repository(repository_id)
+        now = utc_now_iso()
         with self.connection:
             self.connection.execute("DELETE FROM project_repositories WHERE project_id=? AND repository_id=?", (project_id, repository_id))
             self.connection.execute("DELETE FROM resource_links WHERE project_id=? AND repository_id=?", (project_id, repository_id))
+            label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+            self.connection.execute(
+                """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,metadata_json)
+                   VALUES (?, 'repository_unlinked', ?, '', ?, ?, '{}')""",
+                (project_id, label, now, repository_id),
+            )
 
     def project_repository(self, project_id: int, repository_id: int) -> ProjectRepository | None:
         row = self.connection.execute(
@@ -1774,8 +1999,16 @@ class Database:
             )
 
     def set_repository_github_access_state(self, repository_id: int, state: str) -> None:
+        repo = self.get_repository(repository_id)
+        previous = repo.github_access_state if repo else None
+        now = utc_now_iso()
         with self.connection:
-            self.connection.execute("UPDATE repositories SET github_access_state=?,updated_at=? WHERE id=?", (state, utc_now_iso(), repository_id))
+            self.connection.execute("UPDATE repositories SET github_access_state=?,updated_at=? WHERE id=?", (state, now, repository_id))
+        if previous != state and state not in {"available", "unknown"}:
+            label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+            for project in self.list_projects_for_repository(repository_id):
+                self.add_activity(project.id, "repository_access_changed", label, state, repository_id=repository_id)
+                self.add_notification(project.id, "repository_access_lost", "Repository access lost", f"{label}: {state}", f"repo-access:{project.id}:{repository_id}:{state}")
 
     # ------------------------------------------------------------------
     # Resource links and baselines
@@ -1788,14 +2021,28 @@ class Database:
         parent = "" if resource_parent_id is None else str(resource_parent_id)
         rid = str(resource_id)
         target = target_value.strip().replace("\\", "/")
+        payload = json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":"))
+        repo = self.get_repository(repository_id)
         try:
             with self.connection:
                 cursor = self.connection.execute(
                     """INSERT INTO resource_links(project_id,resource_type,resource_id,resource_parent_id,repository_id,
                        target_type,target_value,github_node_id,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                    (project_id, resource_type, rid, parent, repository_id, target_type, target, github_node_id,
-                     json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":")), now),
+                    (project_id, resource_type, rid, parent, repository_id, target_type, target, github_node_id, payload, now),
                 )
+                repo_label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+                detail = f"{repo_label} · {target_type}: {target or '/'}"
+                self.connection.execute(
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,resource_type,resource_id,metadata_json)
+                       VALUES (?, 'code_linked', ?, ?, ?, ?, ?, ?, ?)""",
+                    (project_id, "Code linked", detail, now, repository_id, resource_type, rid, payload),
+                )
+                if resource_type == "decision":
+                    self.connection.execute(
+                        """INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at)
+                           VALUES (?, 'code_linked', 'Code linked', ?, ?, ?)""",
+                        (int(resource_id), detail, payload, now),
+                    )
             return self.get_resource_link(int(cursor.lastrowid))  # type: ignore[return-value]
         except sqlite3.IntegrityError as exc:
             raise DatabaseError("This resource is already linked to the selected repository target.") from exc
@@ -1827,6 +2074,8 @@ class Database:
         row = self.connection.execute("SELECT * FROM resource_links WHERE id=?", (link_id,)).fetchone()
         if not row:
             return
+        repo = self.get_repository(int(row["repository_id"]))
+        now = utc_now_iso()
         with self.connection:
             self.connection.execute("DELETE FROM resource_links WHERE id=?", (link_id,))
             remaining = self.connection.execute(
@@ -1837,6 +2086,18 @@ class Database:
                 self.connection.execute(
                     "DELETE FROM review_baselines WHERE resource_type=? AND resource_id=? AND resource_parent_id=? AND repository_id=?",
                     (row["resource_type"], row["resource_id"], row["resource_parent_id"], row["repository_id"]),
+                )
+            repo_label = (repo.full_name or repo.name) if repo else f"Repository #{row['repository_id']}"
+            detail = f"{repo_label} · {row['target_type']}: {row['target_value'] or '/'}"
+            self.connection.execute(
+                """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,resource_type,resource_id,metadata_json)
+                   VALUES (?, 'code_unlinked', 'Code unlinked', ?, ?, ?, ?, ?, '{}')""",
+                (int(row["project_id"]), detail, now, int(row["repository_id"]), str(row["resource_type"]), str(row["resource_id"])),
+            )
+            if str(row["resource_type"]) == "decision":
+                self.connection.execute(
+                    "INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at) VALUES (?, 'code_unlinked', 'Code unlinked', ?, '{}', ?)",
+                    (int(row["resource_id"]), detail, now),
                 )
 
     def delete_resource_context(self, resource_type: str, resource_id: str | int,
@@ -1864,6 +2125,12 @@ class Database:
         now = utc_now_iso()
         parent = "" if resource_parent_id is None else str(resource_parent_id)
         rid = str(resource_id)
+        link_row = self.connection.execute(
+            """SELECT project_id FROM resource_links WHERE resource_type=? AND resource_id=? AND resource_parent_id=? AND repository_id=?
+               ORDER BY id LIMIT 1""", (resource_type, rid, parent, repository_id)
+        ).fetchone()
+        project_id = int(link_row["project_id"]) if link_row else None
+        repo = self.get_repository(repository_id)
         with self.connection:
             self.connection.execute(
                 """INSERT INTO review_baselines(resource_type,resource_id,resource_parent_id,repository_id,baseline_sha,branch,
@@ -1872,6 +2139,26 @@ class Database:
                    baseline_sha=excluded.baseline_sha,branch=excluded.branch,reviewed_at=excluded.reviewed_at,updated_at=excluded.updated_at""",
                 (resource_type, rid, parent, repository_id, baseline_sha, branch, now, now, now),
             )
+            if project_id is not None:
+                self.connection.execute(
+                    """INSERT INTO review_history(project_id,resource_type,resource_id,resource_parent_id,repository_id,baseline_sha,branch,reviewed_at)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (project_id, resource_type, rid, parent, repository_id, baseline_sha, branch, now),
+                )
+                repo_label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+                detail = f"{repo_label} @ {baseline_sha[:8]}"
+                self.connection.execute(
+                    """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,resource_type,resource_id,metadata_json)
+                       VALUES (?, 'marked_reviewed', 'Marked as Reviewed', ?, ?, ?, ?, ?, ?)""",
+                    (project_id, detail, now, repository_id, resource_type, rid,
+                     json.dumps({"sha": baseline_sha, "branch": branch}, separators=(",", ":"))),
+                )
+                if resource_type == "decision":
+                    self.connection.execute(
+                        """INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at)
+                           VALUES (?, 'reviewed', 'Reviewed', ?, ?, ?)""",
+                        (int(resource_id), detail, json.dumps({"sha": baseline_sha, "branch": branch}, separators=(",", ":")), now),
+                    )
         baseline = self.get_review_baseline(resource_type, rid, repository_id, parent)
         if baseline is None:
             raise DatabaseError("Review baseline could not be saved.")
@@ -1909,6 +2196,10 @@ class Database:
                                     "authored_at": c.authored_at, "html_url": c.html_url} for c in commits])
         prs_json = json.dumps([{"number": p.number, "title": p.title, "state": p.state, "html_url": p.html_url,
                                 "merged_at": p.merged_at, "updated_at": p.updated_at} for p in pull_requests])
+        existed = self.connection.execute(
+            "SELECT 1 FROM repository_changes WHERE repository_id=? AND from_sha=? AND to_sha=? AND source=?",
+            (repository_id, from_sha, to_sha, source),
+        ).fetchone() is not None
         with self.connection:
             self.connection.execute(
                 """INSERT INTO repository_changes(repository_id,from_sha,to_sha,source,commit_count,changed_files_json,
@@ -1918,6 +2209,16 @@ class Database:
                    pull_requests_json=excluded.pull_requests_json,detected_at=excluded.detected_at""",
                 (repository_id, from_sha, to_sha, source, commit_count, files_json, commits_json, prs_json, now),
             )
+        if not existed and from_sha != to_sha:
+            repo = self.get_repository(repository_id)
+            repo_label = (repo.full_name or repo.name) if repo else f"Repository #{repository_id}"
+            for project in self.list_projects_for_repository(repository_id):
+                detail = f"{commit_count} commit(s) · {from_sha[:8]} → {to_sha[:8]}"
+                self.add_activity(project.id, "commits_detected", repo_label, detail, repository_id=repository_id,
+                                  metadata={"from_sha": from_sha, "to_sha": to_sha, "commit_count": commit_count})
+                self.add_notification(project.id, "commits_detected", "New commits detected",
+                                      f"{repo_label}: {commit_count} new commit(s)",
+                                      f"commits:{project.id}:{repository_id}:{to_sha}")
         return self.get_repository_change(repository_id, from_sha, to_sha, source)  # type: ignore[return-value]
 
     def get_repository_change(self, repository_id: int, from_sha: str, to_sha: str, source: str | None = None) -> RepositoryChange | None:
@@ -2000,45 +2301,354 @@ class Database:
     # ------------------------------------------------------------------
     # Search/activity/settings
     # ------------------------------------------------------------------
-    def global_search(self, query: str, limit: int = 50) -> list[tuple[str, int, str, str]]:
+    def global_search(self, query: str, limit: int = 80) -> list[tuple[str, int, str, str]]:
+        """Search user-visible workspace data, code paths and cached commit messages.
+
+        The historical four-column return shape is intentionally retained for
+        compatibility with older callers/tests. Code-resource results use the
+        resource-link id as the integer identifier; repository and commit hits
+        use the repository id so the UI can open the repository/code detail.
+        """
         term = query.strip()
         if not term:
             return []
         like = f"%{term}%"
         results: list[tuple[str, int, str, str]] = []
+
+        def room() -> int:
+            return max(0, limit - len(results))
+
         for row in self.connection.execute(
-            "SELECT id,name,description FROM projects WHERE archived_at IS NULL AND (name LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE) LIMIT ?",
-            (like, like, limit),
+            """SELECT p.id,p.name,p.description FROM projects p
+               WHERE p.archived_at IS NULL AND p.trashed_at IS NULL
+                 AND (p.name LIKE ? COLLATE NOCASE OR p.description LIKE ? COLLATE NOCASE)
+               ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='project' AND f.resource_id=CAST(p.id AS TEXT)) DESC,
+                        p.updated_at DESC LIMIT ?""",
+            (like, like, room()),
         ).fetchall():
             results.append(("project", int(row["id"]), str(row["name"]), str(row["description"] or "")))
-        remaining = max(0, limit - len(results))
-        if remaining:
+
+        if room():
             for row in self.connection.execute(
-                """SELECT id,title,content_plain FROM notes WHERE is_deleted=0 AND id NOT IN (SELECT note_id FROM decisions)
-                   AND (title LIKE ? COLLATE NOCASE OR content_plain LIKE ? COLLATE NOCASE) LIMIT ?""", (like, like, remaining),
+                """SELECT n.id,n.title,n.content_plain FROM notes n
+                   WHERE n.is_deleted=0 AND n.id NOT IN (SELECT note_id FROM decisions)
+                     AND (n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE OR EXISTS(
+                         SELECT 1 FROM resource_tags rt JOIN tags t ON t.id=rt.tag_id
+                         WHERE rt.resource_type='note' AND rt.resource_id=CAST(n.id AS TEXT) AND t.name LIKE ? COLLATE NOCASE))
+                   ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='note' AND f.resource_id=CAST(n.id AS TEXT)) DESC,
+                            n.updated_at DESC LIMIT ?""",
+                (like, like, like, room()),
             ).fetchall():
-                results.append(("note", int(row["id"]), str(row["title"]), str(row["content_plain"] or "")[:180]))
-        remaining = max(0, limit - len(results))
-        if remaining:
+                results.append(("note", int(row["id"]), str(row["title"]), str(row["content_plain"] or "")[:220]))
+
+        if room():
             for row in self.connection.execute(
                 """SELECT d.id,d.decision_key,n.title,n.content_plain FROM decisions d JOIN notes n ON n.id=d.note_id
-                   WHERE n.is_deleted=0 AND (d.decision_key LIKE ? OR n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE) LIMIT ?""",
-                (like, like, like, remaining),
+                   WHERE n.is_deleted=0 AND (d.decision_key LIKE ? COLLATE NOCASE OR n.title LIKE ? COLLATE NOCASE OR n.content_plain LIKE ? COLLATE NOCASE OR EXISTS(
+                       SELECT 1 FROM resource_tags rt JOIN tags t ON t.id=rt.tag_id
+                       WHERE rt.resource_type='decision' AND rt.resource_id=CAST(d.id AS TEXT) AND t.name LIKE ? COLLATE NOCASE))
+                   ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='decision' AND f.resource_id=CAST(d.id AS TEXT)) DESC,
+                            d.updated_at DESC LIMIT ?""",
+                (like, like, like, like, room()),
             ).fetchall():
-                results.append(("decision", int(row["id"]), f"{row['decision_key']} · {row['title']}", str(row["content_plain"] or "")[:180]))
-        return results
+                results.append(("decision", int(row["id"]), f"{row['decision_key']} · {row['title']}", str(row["content_plain"] or "")[:220]))
 
-    def add_activity(self, project_id: int | None, event_type: str, title: str, detail: str = "") -> None:
+        if room():
+            for row in self.connection.execute(
+                """SELECT r.id,COALESCE(r.full_name,r.name) label,r.description,r.local_git_root
+                   FROM repositories r
+                   WHERE COALESCE(r.full_name,r.name) LIKE ? COLLATE NOCASE
+                      OR COALESCE(r.description,'') LIKE ? COLLATE NOCASE
+                      OR COALESCE(r.local_git_root,'') LIKE ? COLLATE NOCASE
+                   ORDER BY EXISTS(SELECT 1 FROM favorites f WHERE f.resource_type='repository' AND f.resource_id=CAST(r.id AS TEXT)) DESC,
+                            r.updated_at DESC LIMIT ?""",
+                (like, like, like, room()),
+            ).fetchall():
+                detail = str(row["description"] or row["local_git_root"] or "")
+                results.append(("repository", int(row["id"]), str(row["label"]), detail[:220]))
+
+        if room():
+            for row in self.connection.execute(
+                """SELECT rl.id,rl.repository_id,rl.target_type,rl.target_value,COALESCE(r.full_name,r.name) repo_name
+                   FROM resource_links rl JOIN repositories r ON r.id=rl.repository_id
+                   WHERE rl.target_value LIKE ? COLLATE NOCASE
+                   ORDER BY rl.created_at DESC LIMIT ?""",
+                (like, room()),
+            ).fetchall():
+                target = str(row["target_value"] or "/")
+                results.append(("code", int(row["id"]), target, f"{row['repo_name']} · {row['target_type']}"))
+
+        if room():
+            # Commit messages are cached as JSON. LIKE is sufficient here and
+            # avoids making JSON1 a hard SQLite build requirement.
+            for row in self.connection.execute(
+                """SELECT rc.repository_id,rc.commits_json,COALESCE(r.full_name,r.name) repo_name
+                   FROM repository_changes rc JOIN repositories r ON r.id=rc.repository_id
+                   WHERE rc.commits_json LIKE ? COLLATE NOCASE
+                   ORDER BY rc.detected_at DESC LIMIT ?""",
+                (like, room()),
+            ).fetchall():
+                try:
+                    commits = json.loads(str(row["commits_json"] or "[]"))
+                except json.JSONDecodeError:
+                    commits = []
+                for commit in commits if isinstance(commits, list) else []:
+                    message = str(commit.get("message") or "") if isinstance(commit, dict) else ""
+                    if term.casefold() not in message.casefold():
+                        continue
+                    sha = str(commit.get("sha") or "") if isinstance(commit, dict) else ""
+                    results.append(("commit", int(row["repository_id"]), f"{sha[:8]} · {message}", str(row["repo_name"])))
+                    if not room():
+                        break
+
+        return results[:limit]
+
+    def add_activity(self, project_id: int | None, event_type: str, title: str, detail: str = "",
+                     *, repository_id: int | None = None, resource_type: str | None = None,
+                     resource_id: str | int | None = None, metadata: dict[str, object] | None = None) -> None:
         with self.connection:
             self.connection.execute(
-                "INSERT INTO activity_events(project_id,event_type,title,detail,created_at) VALUES (?,?,?,?,?)",
-                (project_id, event_type, title, detail, utc_now_iso()),
+                """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,repository_id,resource_type,resource_id,metadata_json)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (project_id, event_type, title, detail, utc_now_iso(), repository_id, resource_type,
+                 None if resource_id is None else str(resource_id),
+                 json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":"))),
             )
 
-    def list_activity(self, project_id: int | None = None, limit: int = 25) -> list[sqlite3.Row]:
+    def list_activity(self, project_id: int | None = None, limit: int = 100,
+                      repository_id: int | None = None, days: int | None = None) -> list[sqlite3.Row]:
+        where: list[str] = []
+        params: list[object] = []
+        if project_id is not None:
+            where.append("project_id=?")
+            params.append(project_id)
+        if repository_id is not None:
+            where.append("repository_id=?")
+            params.append(repository_id)
+        if days is not None and days > 0:
+            where.append("datetime(created_at) >= datetime('now', ?)")
+            params.append(f"-{int(days)} days")
+        sql = "SELECT * FROM activity_events"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+        return self.connection.execute(sql, params).fetchall()
+
+    def add_decision_history(self, decision_id: int, event_type: str, title: str, detail: str = "",
+                             metadata: dict[str, object] | None = None) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO decision_history(decision_id,event_type,title,detail,metadata_json,created_at) VALUES (?,?,?,?,?,?)",
+                (decision_id, event_type, title, detail,
+                 json.dumps(metadata or {}, ensure_ascii=False, separators=(",", ":")), utc_now_iso()),
+            )
+
+    def add_decision_history_once(self, decision_id: int, event_type: str, title: str, detail: str = "",
+                                  *, unique_key: str, metadata: dict[str, object] | None = None) -> bool:
+        rows = self.connection.execute(
+            "SELECT metadata_json FROM decision_history WHERE decision_id=? AND event_type=? ORDER BY id DESC LIMIT 100",
+            (decision_id, event_type),
+        ).fetchall()
+        for row in rows:
+            try:
+                existing = json.loads(str(row["metadata_json"] or "{}"))
+            except json.JSONDecodeError:
+                existing = {}
+            if str(existing.get("unique_key") or "") == unique_key:
+                return False
+        payload = dict(metadata or {})
+        payload["unique_key"] = unique_key
+        self.add_decision_history(decision_id, event_type, title, detail, payload)
+        return True
+
+    def list_decision_history(self, decision_id: int, limit: int = 200) -> list[sqlite3.Row]:
+        return self.connection.execute(
+            "SELECT * FROM decision_history WHERE decision_id=? ORDER BY created_at DESC,id DESC LIMIT ?",
+            (decision_id, limit),
+        ).fetchall()
+
+    def list_review_history(self, resource_type: str, resource_id: str | int,
+                            resource_parent_id: str | int | None = None, limit: int = 100) -> list[sqlite3.Row]:
+        parent = "" if resource_parent_id is None else str(resource_parent_id)
+        return self.connection.execute(
+            """SELECT h.*,COALESCE(r.full_name,r.name) repository_name FROM review_history h
+               JOIN repositories r ON r.id=h.repository_id
+               WHERE h.resource_type=? AND h.resource_id=? AND h.resource_parent_id=?
+               ORDER BY h.reviewed_at DESC,h.id DESC LIMIT ?""",
+            (resource_type, str(resource_id), parent, limit),
+        ).fetchall()
+
+    @staticmethod
+    def _normalize_tag_names(names: Iterable[str]) -> list[str]:
+        seen: set[str] = set()
+        clean: list[str] = []
+        for raw in names:
+            name = str(raw).strip().lstrip("#")
+            if not name or len(name) > 48:
+                continue
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            clean.append(name)
+        return clean
+
+    def set_tags(self, resource_type: str, resource_id: str | int, tags: Iterable[str]) -> list[str]:
+        names = self._normalize_tag_names(tags)
+        rid = str(resource_id)
+        now = utc_now_iso()
+        with self.connection:
+            self.connection.execute("DELETE FROM resource_tags WHERE resource_type=? AND resource_id=?", (resource_type, rid))
+            for name in names:
+                self.connection.execute("INSERT OR IGNORE INTO tags(name,created_at) VALUES (?,?)", (name, now))
+                tag_row = self.connection.execute("SELECT id FROM tags WHERE name=? COLLATE NOCASE", (name,)).fetchone()
+                if tag_row:
+                    self.connection.execute(
+                        "INSERT OR IGNORE INTO resource_tags(resource_type,resource_id,tag_id,created_at) VALUES (?,?,?,?)",
+                        (resource_type, rid, int(tag_row["id"]), now),
+                    )
+        return self.get_tags(resource_type, rid)
+
+    def get_tags(self, resource_type: str, resource_id: str | int) -> list[str]:
+        return [str(r["name"]) for r in self.connection.execute(
+            """SELECT t.name FROM tags t JOIN resource_tags rt ON rt.tag_id=t.id
+               WHERE rt.resource_type=? AND rt.resource_id=? ORDER BY t.name COLLATE NOCASE""",
+            (resource_type, str(resource_id)),
+        ).fetchall()]
+
+    def list_tags(self) -> list[str]:
+        return [str(r["name"]) for r in self.connection.execute("SELECT name FROM tags ORDER BY name COLLATE NOCASE").fetchall()]
+
+    def set_favorite(self, resource_type: str, resource_id: str | int, favorite: bool,
+                     project_id: int | None = None) -> None:
+        rid = str(resource_id)
+        with self.connection:
+            if favorite:
+                self.connection.execute(
+                    "INSERT OR REPLACE INTO favorites(resource_type,resource_id,project_id,created_at) VALUES (?,?,?,?)",
+                    (resource_type, rid, project_id, utc_now_iso()),
+                )
+            else:
+                self.connection.execute("DELETE FROM favorites WHERE resource_type=? AND resource_id=?", (resource_type, rid))
+
+    def is_favorite(self, resource_type: str, resource_id: str | int) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM favorites WHERE resource_type=? AND resource_id=?", (resource_type, str(resource_id))
+        ).fetchone() is not None
+
+    def touch_recent(self, resource_type: str, resource_id: str | int, title: str,
+                     project_id: int | None = None, detail: str = "") -> None:
+        with self.connection:
+            self.connection.execute(
+                """INSERT INTO recent_items(resource_type,resource_id,project_id,title,detail,opened_at) VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(resource_type,resource_id) DO UPDATE SET project_id=excluded.project_id,title=excluded.title,
+                       detail=excluded.detail,opened_at=excluded.opened_at""",
+                (resource_type, str(resource_id), project_id, title, detail, utc_now_iso()),
+            )
+
+    def list_recent(self, project_id: int | None = None, limit: int = 12) -> list[sqlite3.Row]:
+        """Return recent work only for projects that still exist and are active.
+
+        ``recent_items`` deliberately has no cascading foreign key because it is
+        session/history metadata. A project can therefore remain referenced after
+        being moved to Trash or permanently deleted. Filtering through ``projects``
+        here keeps Dashboard/Continue Working from resurrecting deleted projects.
+        """
+        params: list[object] = []
         if project_id is None:
-            return self.connection.execute("SELECT * FROM activity_events ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
-        return self.connection.execute("SELECT * FROM activity_events WHERE project_id=? ORDER BY created_at DESC LIMIT ?", (project_id, limit)).fetchall()
+            # Preserve any intentionally project-less recent entries for callers
+            # that request the global history, while still filtering stale project
+            # references. Dashboard normally uses the project-scoped branch below.
+            where = [
+                "(ri.project_id IS NULL OR (p.id IS NOT NULL AND p.trashed_at IS NULL AND p.archived_at IS NULL))"
+            ]
+        else:
+            where = [
+                "p.id IS NOT NULL", "p.trashed_at IS NULL", "p.archived_at IS NULL", "ri.project_id=?"
+            ]
+            params.append(project_id)
+        params.append(limit)
+        return self.connection.execute(
+            f"""SELECT ri.* FROM recent_items ri
+                LEFT JOIN projects p ON p.id=ri.project_id
+                WHERE {' AND '.join(where)}
+                ORDER BY ri.opened_at DESC LIMIT ?""",
+            params,
+        ).fetchall()
+
+    def add_notification(self, project_id: int | None, event_type: str, title: str, detail: str = "",
+                         notification_key: str | None = None) -> None:
+        with self.connection:
+            self.connection.execute(
+                """INSERT OR IGNORE INTO notifications(project_id,event_type,title,detail,notification_key,is_read,created_at)
+                   VALUES (?,?,?,?,?,0,?)""",
+                (project_id, event_type, title, detail, notification_key, utc_now_iso()),
+            )
+
+    def list_notifications(self, unread_only: bool = False, limit: int = 100) -> list[sqlite3.Row]:
+        sql = "SELECT * FROM notifications"
+        params: list[object] = []
+        if unread_only:
+            sql += " WHERE is_read=0"
+        sql += " ORDER BY created_at DESC,id DESC LIMIT ?"
+        params.append(limit)
+        return self.connection.execute(sql, params).fetchall()
+
+    def unread_notification_count(self) -> int:
+        return int(self.connection.execute("SELECT COUNT(*) FROM notifications WHERE is_read=0").fetchone()[0])
+
+    def mark_notifications_read(self) -> None:
+        with self.connection:
+            self.connection.execute("UPDATE notifications SET is_read=1 WHERE is_read=0")
+
+    def backlinks_for_path(self, repository_id: int, path: str) -> list[sqlite3.Row]:
+        """Return knowledge resources whose link scope contains *path*."""
+        normalized = path.replace("\\", "/").strip("/")
+        rows = self.connection.execute(
+            """SELECT rl.*,COALESCE(r.full_name,r.name) repository_name FROM resource_links rl
+               JOIN repositories r ON r.id=rl.repository_id WHERE rl.repository_id=?
+               ORDER BY rl.created_at DESC""", (repository_id,)
+        ).fetchall()
+        matches: list[sqlite3.Row] = []
+        for row in rows:
+            target_type = str(row["target_type"])
+            target = str(row["target_value"] or "").replace("\\", "/").strip("/")
+            if target_type == "repository":
+                matches.append(row)
+            elif target_type == "file" and target == normalized:
+                matches.append(row)
+            elif target_type == "directory" and (not target or normalized == target or normalized.startswith(target + "/")):
+                matches.append(row)
+        return matches
+
+    def describe_resource(self, resource_type: str, resource_id: str, resource_parent_id: str = "") -> tuple[str, str]:
+        if resource_type == "note":
+            try:
+                note = self.get_note(int(resource_id))
+            except ValueError:
+                note = None
+            return (note.title if note else f"Note #{resource_id}", "note")
+        if resource_type == "decision":
+            try:
+                decision = self.get_decision(int(resource_id))
+            except ValueError:
+                decision = None
+            return ((f"{decision.decision_key} · {decision.title}" if decision else f"Decision #{resource_id}"), "decision")
+        if resource_type == "diagram_item":
+            try:
+                note = self.get_note(int(resource_parent_id))
+            except ValueError:
+                note = None
+            return ((note.title if note else "Architecture") + f" · node {resource_id[:8]}", "architecture")
+        return (f"{resource_type} #{resource_id}", resource_type)
+
+    def resource_links_for_path(self, repository_id: int, path: str) -> list[tuple[sqlite3.Row, str, str]]:
+        result: list[tuple[sqlite3.Row, str, str]] = []
+        for row in self.backlinks_for_path(repository_id, path):
+            title, kind = self.describe_resource(str(row["resource_type"]), str(row["resource_id"]), str(row["resource_parent_id"] or ""))
+            result.append((row, title, kind))
+        return result
 
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         row = self.connection.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()

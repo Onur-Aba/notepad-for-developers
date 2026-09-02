@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.database import Database
 from app.i18n import I18n
@@ -33,7 +33,7 @@ class ProjectDetailPage(QWidget):
 
         self.nav_buttons: dict[str, QPushButton] = {}
         nav = QHBoxLayout()
-        for key in ("overview", "notes", "decisions", "architecture", "repository", "changes"):
+        for key in ("overview", "notes", "decisions", "architecture", "activity", "health", "repository", "changes"):
             button = QPushButton()
             button.setObjectName("secondaryTabButton")
             section = "review" if key == "changes" else key
@@ -51,9 +51,15 @@ class ProjectDetailPage(QWidget):
         self.summary.setObjectName("helperBanner")
         self.summary.setWordWrap(True)
         root.addWidget(self.summary)
+        repo_heading = QHBoxLayout()
         self.repo_title = QLabel()
         self.repo_title.setObjectName("sectionTitle")
-        root.addWidget(self.repo_title)
+        self.repo_filter = QComboBox()
+        self.repo_filter.currentIndexChanged.connect(lambda _i: self.set_project(self.project_id) if self.project_id else None)
+        repo_heading.addWidget(self.repo_title)
+        repo_heading.addStretch(1)
+        repo_heading.addWidget(self.repo_filter)
+        root.addLayout(repo_heading)
         self.repo_container = QWidget()
         self.repo_layout = QVBoxLayout(self.repo_container)
         self.repo_layout.setContentsMargins(0, 0, 0, 0)
@@ -69,6 +75,8 @@ class ProjectDetailPage(QWidget):
             "notes": "Yalnızca bu projeye ait notları açar.",
             "decisions": "Yalnızca bu projeye ait teknik kararları açar.",
             "architecture": "Bu projeye ait mimari diyagramlarını açar.",
+            "activity": "Bu projedeki commit, karar, not ve review geçmişini tek akışta gösterir.",
+            "health": "Bu projenin review ve dokümantasyon sağlık özetini gösterir.",
             "repository": "Bu projeye bağlanmış kod depolarını burada görürsünüz.",
             "changes": "Bu projedeki bağlı kod değişiklikleri nedeniyle tekrar bakmanız gereken bilgileri açar.",
         }
@@ -77,16 +85,37 @@ class ProjectDetailPage(QWidget):
             "notes": "Open only the notes that belong to this project.",
             "decisions": "Open only the technical decisions that belong to this project.",
             "architecture": "Open architecture diagrams that belong to this project.",
+            "activity": "Show commits, decisions, notes and reviews for this project in one timeline.",
+            "health": "Show review and documentation health for this project.",
             "repository": "See the code repositories connected to this project.",
             "changes": "Open knowledge in this project that should be checked again because connected code changed.",
         }
         for key, button in self.nav_buttons.items():
-            button.setText(self.i18n.t(f"project_detail.{key}"))
+            if key == "activity":
+                button.setText("Aktivite" if self.i18n.language == "tr" else "Activity")
+            elif key == "health":
+                button.setText("Sağlık" if self.i18n.language == "tr" else "Health")
+            else:
+                button.setText(self.i18n.t(f"project_detail.{key}"))
             button.setToolTip((tips_tr if self.i18n.language == "tr" else tips_en)[key])
         self.back.setToolTip("Proje listesine geri döner." if self.i18n.language == "tr" else "Go back to the project list.")
         self.repo_title.setText(self.i18n.t("project_detail.repo_title"))
         if self.project_id is not None:
             self.set_project(self.project_id)
+
+    def _github_access_text(self, repo) -> str:
+        tr = self.i18n.language == "tr"
+        if repo.github_repo_id is None or repo.github_access_state == "local_only":
+            return "GitHub bağlantısı yok; yerel depo kullanılabilir" if tr else "No GitHub connection; local repository can still be used"
+        if repo.github_access_state == "available":
+            return "Sadece okuma erişimi doğrulandı" if tr else "Read-only access verified"
+        if repo.github_access_state in {"unknown", "unchecked"}:
+            return "GitHub erişimi henüz doğrulanmadı" if tr else "GitHub access has not been verified yet"
+        # Do not call the repository itself unavailable: only the remote access
+        # check failed. This distinction matters when a healthy local clone exists.
+        if repo.local_git_root:
+            return "GitHub erişimi doğrulanamadı; yerel depo kullanılabilir" if tr else "GitHub access could not be verified; local repository is available"
+        return "GitHub erişimi doğrulanamadı" if tr else "GitHub access could not be verified"
 
     def set_project(self, project_id: int) -> None:
         self.project_id = project_id
@@ -100,6 +129,17 @@ class ProjectDetailPage(QWidget):
         notes = self.database.list_notes(project_id=project_id)
         decisions = self.database.list_decisions(project_id)
         repositories = self.database.list_repositories(project_id)
+        current_repo_filter = self.repo_filter.currentData() if self.repo_filter.count() else None
+        self.repo_filter.blockSignals(True)
+        self.repo_filter.clear()
+        self.repo_filter.addItem("Tüm repository'ler" if self.i18n.language == "tr" else "All repositories", None)
+        for repo in repositories:
+            self.repo_filter.addItem(repo.full_name or repo.name, repo.id)
+        index = self.repo_filter.findData(current_repo_filter)
+        self.repo_filter.setCurrentIndex(max(0, index))
+        self.repo_filter.blockSignals(False)
+        selected_repo_id = self.repo_filter.currentData()
+        visible_repositories = repositories if selected_repo_id is None else [r for r in repositories if r.id == int(selected_repo_id)]
         if self.i18n.language == "tr":
             self.summary.setText(
                 f"Bu projede {len(repositories)} depo, {len(notes)} not ve {len(decisions)} karar var. "
@@ -114,12 +154,12 @@ class ProjectDetailPage(QWidget):
             item = self.repo_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        if not repositories:
+        if not visible_repositories:
             empty = QLabel(self.i18n.t("project_detail.empty_repo"))
             empty.setWordWrap(True)
             empty.setObjectName("emptyState")
             self.repo_layout.addWidget(empty)
-        for repo in repositories:
+        for repo in visible_repositories:
             frame = QFrame()
             frame.setObjectName("repositoryCard")
             layout = QVBoxLayout(frame)
@@ -128,21 +168,21 @@ class ProjectDetailPage(QWidget):
             name.setObjectName("cardTitle")
             if self.i18n.language == "tr":
                 local = repo.local_git_root or "Yerel klasör bağlanmamış"
-                github = "Sadece okuma erişimi var" if repo.github_repo_id is not None and repo.github_access_state == "available" else "GitHub erişimi yok/kapalı"
+                github = self._github_access_text(repo)
                 detail_text = (
                     f"Bilgisayardaki klasör: {local}\nGitHub: {github}\nİzlenen branch: {repo.default_branch or 'Bilinmiyor'}\n"
                     f"Son görülen commit: {(repo.last_seen_sha or 'Henüz kontrol edilmedi')[:12]}"
                 )
             else:
                 local = repo.local_git_root or "No local folder connected"
-                github = "Read-only access available" if repo.github_repo_id is not None and repo.github_access_state == "available" else "GitHub access unavailable"
+                github = self._github_access_text(repo)
                 detail_text = (
                     f"Local folder: {local}\nGitHub: {github}\nMonitored branch: {repo.default_branch or 'Unknown'}\n"
                     f"Last seen commit: {(repo.last_seen_sha or 'Not checked yet')[:12]}"
                 )
             detail = QLabel(detail_text)
             detail.setWordWrap(True)
-            detail.setObjectName("mutedText")
+            detail.setObjectName("repositoryDetailText")
             refresh = QPushButton(self.i18n.t("project_detail.refresh"))
             refresh.setToolTip(
                 "Depodaki güncel commit'i ve değişiklikleri şimdi kontrol eder. Koda hiçbir şey yazmaz."
@@ -157,7 +197,12 @@ class ProjectDetailPage(QWidget):
                 "Disconnect this repository only from this DevNest project. It does not delete the local folder or GitHub repository."
             )
             remove.clicked.connect(lambda _checked=False, pid=project_id, rid=repo.id: self.unlinkRepositoryRequested.emit(pid, rid))
+            favorite = QPushButton("★" if self.database.is_favorite("repository", repo.id) else "☆")
+            favorite.setFixedWidth(42)
+            favorite.setToolTip("Repository'yi favorilere ekle/çıkar." if self.i18n.language == "tr" else "Add/remove repository from favorites.")
+            favorite.clicked.connect(lambda _c=False, rid=repo.id: self._toggle_repository_favorite(rid))
             buttons = QHBoxLayout()
+            buttons.addWidget(favorite)
             buttons.addWidget(refresh)
             buttons.addWidget(remove)
             buttons.addStretch(1)
@@ -166,3 +211,9 @@ class ProjectDetailPage(QWidget):
             layout.addLayout(buttons)
             self.repo_layout.addWidget(frame)
         self.repo_layout.addStretch(1)
+
+    def _toggle_repository_favorite(self, repository_id: int) -> None:
+        favorite = not self.database.is_favorite("repository", repository_id)
+        self.database.set_favorite("repository", repository_id, favorite, self.project_id)
+        if self.project_id is not None:
+            self.set_project(self.project_id)

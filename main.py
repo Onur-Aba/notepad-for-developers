@@ -16,6 +16,12 @@ from app.themes.theme_manager import ThemeManager
 
 
 def main() -> int:
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DevNest.DevNest.2")
+        except (AttributeError, OSError):
+            pass
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(VERSION)
@@ -23,9 +29,14 @@ def main() -> int:
     app.setOrganizationDomain(ORGANIZATION_DOMAIN)
     app.setDesktopFileName("devnest")
 
-    icon_path = resource_path("resources/devnest.svg")
-    if icon_path.exists():
-        app.setWindowIcon(QIcon(str(icon_path)))
+    icon_candidates = (
+        resource_path("resources/devnest.ico") if sys.platform == "win32" else resource_path("resources/devnest.svg"),
+        resource_path("resources/devnest.svg"),
+    )
+    for icon_path in icon_candidates:
+        if icon_path.exists():
+            app.setWindowIcon(QIcon(str(icon_path)))
+            break
 
     configure_logging()
     logger = logging.getLogger(__name__)

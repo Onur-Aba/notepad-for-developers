@@ -26,3 +26,14 @@ SHORTCUTS: dict[str, str] = {
     "Duplicate Selected Diagram Item": "Ctrl+D",
     "Delete Selected Diagram Item": "Delete",
 }
+
+
+COMMAND_SHORTCUTS: dict[str, tuple[str, str]] = {
+    "command_palette": ("Command Palette", "Ctrl+K"),
+    "create_decision": ("Create Decision", "Ctrl+Shift+D"),
+    "open_projects": ("Open Project", "Ctrl+Shift+P"),
+    "search_notes": ("Search Notes", "Ctrl+Alt+F"),
+    "review_inbox": ("Review Inbox", "Ctrl+Shift+R"),
+    "switch_theme": ("Switch Theme", "Ctrl+Alt+T"),
+    "open_repository": ("Open Repository", "Ctrl+Shift+O"),
+}

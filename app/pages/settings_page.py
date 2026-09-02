@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -9,13 +10,14 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QKeySequenceEdit,
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from app.constants import MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE_DELAY_MS
+from app.constants import COMMAND_SHORTCUTS, MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE_DELAY_MS
 from app.i18n import I18n, LANGUAGE_OPTIONS
 from app.settings import AppPreferences, SettingsManager
 from app.widgets.no_wheel_spinbox import NoWheelSpinBox
@@ -26,6 +28,11 @@ class SettingsPage(QWidget):
     preferencesRequested = Signal()
     githubRequested = Signal()
     preferencesChanged = Signal()
+    backupRequested = Signal()
+    exportProjectRequested = Signal()
+    importProjectRequested = Signal()
+    diagnosticsRequested = Signal()
+    shortcutsChanged = Signal()
 
     def __init__(self, settings: SettingsManager, i18n: I18n, parent=None) -> None:
         super().__init__(parent)
@@ -116,6 +123,35 @@ class SettingsPage(QWidget):
         self.theme_label = self._label()
         appearance_form.addRow(self.theme_label, self.theme_combo)
 
+        self.shortcuts_group = self._group()
+        shortcuts_form = self._form(self.shortcuts_group)
+        self.shortcut_edits: dict[str, QKeySequenceEdit] = {}
+        self.shortcut_labels: dict[str, QLabel] = {}
+        for command_id, (label, default_shortcut) in COMMAND_SHORTCUTS.items():
+            caption = QLabel(label)
+            caption.setObjectName("settingLabel")
+            edit = QKeySequenceEdit(QKeySequence(self.settings.command_shortcut(command_id, default_shortcut)))
+            edit.setMinimumHeight(38)
+            edit.editingFinished.connect(lambda cid=command_id, e=edit, default=default_shortcut: self._shortcut_changed(cid, e, default))
+            shortcuts_form.addRow(caption, edit)
+            self.shortcut_labels[command_id] = caption
+            self.shortcut_edits[command_id] = edit
+
+        self.workspace_group = self._group()
+        workspace_layout = QVBoxLayout(self.workspace_group)
+        workspace_layout.setContentsMargins(18, 24, 18, 18)
+        workspace_layout.setSpacing(10)
+        self.workspace_help = QLabel(); self.workspace_help.setWordWrap(True); self.workspace_help.setObjectName("settingHelp")
+        workspace_layout.addWidget(self.workspace_help)
+        data_row = QHBoxLayout()
+        self.backup_button = QPushButton(); self.backup_button.clicked.connect(self.backupRequested)
+        self.export_project_button = QPushButton(); self.export_project_button.clicked.connect(self.exportProjectRequested)
+        self.import_project_button = QPushButton(); self.import_project_button.clicked.connect(self.importProjectRequested)
+        self.diagnostics_button = QPushButton(); self.diagnostics_button.clicked.connect(self.diagnosticsRequested)
+        for button in (self.backup_button, self.export_project_button, self.import_project_button, self.diagnostics_button):
+            button.setMinimumHeight(38); data_row.addWidget(button)
+        workspace_layout.addLayout(data_row)
+
         self.github = self._group()
         github_form = self._form(self.github)
         self.startup = self._check()
@@ -154,6 +190,8 @@ class SettingsPage(QWidget):
             self.general,
             self.editor_group,
             self.appearance_group,
+            self.shortcuts_group,
+            self.workspace_group,
             self.github,
             self.more_group,
             self.privacy,
@@ -166,6 +204,8 @@ class SettingsPage(QWidget):
             "saving": self.general,
             "editor": self.editor_group,
             "appearance": self.appearance_group,
+            "shortcuts": self.shortcuts_group,
+            "workspace": self.workspace_group,
             "github": self.github,
             "advanced": self.more_group,
             "privacy": self.privacy,
@@ -305,6 +345,17 @@ class SettingsPage(QWidget):
         self.theme_label.setText("Tema" if tr else "Theme")
         self._rebuild_themes()
 
+        self.shortcuts_group.setTitle("Klavye kısayolları / Komut Paleti" if tr else "Keyboard shortcuts / Command Palette")
+        command_tr = {"command_palette":"Komut Paleti", "create_decision":"Karar Oluştur", "open_projects":"Proje Aç", "search_notes":"Notlarda Ara", "review_inbox":"İnceleme Kutusu", "switch_theme":"Tema Değiştir", "open_repository":"Repository Aç"}
+        for command_id, (label, _default) in COMMAND_SHORTCUTS.items():
+            self.shortcut_labels[command_id].setText(command_tr.get(command_id, label) if tr else label)
+        self.workspace_group.setTitle("Workspace verileri" if tr else "Workspace data")
+        self.workspace_help.setText("SQLite backup alın, projeyi seçilebilir içeriklerle dışa/içe aktarın veya repository erişimini tanılayın." if tr else "Create SQLite backups, export/import selectable project content, or diagnose repository access.")
+        self.backup_button.setText("Backup Yöneticisi" if tr else "Backup Manager")
+        self.export_project_button.setText("Projeyi Dışa Aktar" if tr else "Export Project")
+        self.import_project_button.setText("Projeyi İçe Aktar" if tr else "Import Project")
+        self.diagnostics_button.setText("Repo Tanılama" if tr else "Repo Diagnostics")
+
         self.github.setTitle(self.i18n.t("settings.github"))
         self.startup.setText(self.i18n.t("settings.startup"))
         self.interval_label.setText(self.i18n.t("settings.interval"))
@@ -429,6 +480,11 @@ class SettingsPage(QWidget):
             check_repositories_on_startup=self.startup.isChecked(),
             github_poll_interval_minutes=int(self.interval.currentData() or 15),
         )
+
+    def _shortcut_changed(self, command_id: str, edit: QKeySequenceEdit, default: str) -> None:
+        sequence = edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+        self.settings.set_command_shortcut(command_id, sequence or default)
+        self.shortcutsChanged.emit()
 
     def _save_immediate(self, *_args) -> None:
         if self._loading:

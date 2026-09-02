@@ -55,6 +55,15 @@ class SettingsManager:
         self.qsettings.setValue("github/poll_interval_minutes", prefs.github_poll_interval_minutes)
         self.qsettings.sync()
 
+
+    def command_shortcut(self, command_id: str, default: str) -> str:
+        value = self.qsettings.value(f"shortcuts/{command_id}", default)
+        return str(value or default)
+
+    def set_command_shortcut(self, command_id: str, sequence: str) -> None:
+        self.qsettings.setValue(f"shortcuts/{command_id}", sequence)
+        self.qsettings.sync()
+
     def last_note_id(self) -> int | None:
         value = self.qsettings.value("session/last_note_id", None)
         try:

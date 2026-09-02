@@ -22,12 +22,19 @@ class SettingsDialog(QDialog):
     preferencesChanged = Signal()
     preferencesRequested = Signal()
     githubRequested = Signal()
+    backupRequested = Signal()
+    exportProjectRequested = Signal()
+    importProjectRequested = Signal()
+    diagnosticsRequested = Signal()
+    shortcutsChanged = Signal()
 
     CATEGORY_KEYS = (
         "language",
         "saving",
         "editor",
         "appearance",
+        "shortcuts",
+        "workspace",
         "github",
         "advanced",
         "privacy",
@@ -110,6 +117,11 @@ class SettingsDialog(QDialog):
         self.page.preferencesChanged.connect(self.preferencesChanged)
         self.page.preferencesRequested.connect(self.preferencesRequested)
         self.page.githubRequested.connect(self.githubRequested)
+        self.page.backupRequested.connect(self.backupRequested)
+        self.page.exportProjectRequested.connect(self.exportProjectRequested)
+        self.page.importProjectRequested.connect(self.importProjectRequested)
+        self.page.diagnosticsRequested.connect(self.diagnosticsRequested)
+        self.page.shortcutsChanged.connect(self.shortcutsChanged)
         body.addWidget(self.page, 1)
 
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
@@ -132,6 +144,8 @@ class SettingsDialog(QDialog):
             "saving": "Kayıt ve açılış" if tr else "Saving & startup",
             "editor": "Not editörü" if tr else "Note editor",
             "appearance": "Görünüm" if tr else "Appearance",
+            "shortcuts": "Kısayollar" if tr else "Shortcuts",
+            "workspace": "Backup / Import / Export" if tr else "Backup / Import / Export",
             "github": "GitHub kontrolü" if tr else "GitHub checking",
             "advanced": "Gelişmiş tercihler" if tr else "Advanced preferences",
             "privacy": "Gizlilik" if tr else "Privacy",
