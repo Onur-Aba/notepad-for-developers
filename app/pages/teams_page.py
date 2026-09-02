@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from PySide6.QtCore import QTimer, Signal, Qt
@@ -13,6 +14,7 @@ from app.i18n import I18n
 from app.integrations.supabase.client import SupabaseError
 from app.services.async_tasks import AsyncTaskRunner
 from app.services.cloud_service import CloudService, PERMISSIONS, PERMISSION_LABELS
+from app.services.team_permissions import permissions_strictly_dominate
 
 
 class RoleEditorDialog(QDialog):
@@ -348,8 +350,12 @@ class TeamDetailDialog(QDialog):
         self.members: list[dict] = []
         self.roles: list[dict] = []
         self.activity: list[dict] = []
+        self.viewer: dict = {"is_owner": self.is_owner, "permissions": {}, "rank": 1000000 if self.is_owner else 0}
         self.runner = AsyncTaskRunner()
         self._refresh_generation = 0
+        self._refresh_inflight = False
+        self._refresh_pending = False
+        self._snapshot_signature = ""
         self.setWindowTitle(f"TEAM · {team.get('name')}")
         self.resize(940, 750)
         root = QVBoxLayout(self)
@@ -370,6 +376,15 @@ class TeamDetailDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+
+        # Permission/membership changes made by another teammate must become
+        # visible without forcing the user to leave and reopen this page.  A
+        # small silent poll is intentionally used instead of Supabase Realtime
+        # so the desktop client keeps its zero-extra-dependency setup.
+        self._live_refresh_timer = QTimer(self)
+        self._live_refresh_timer.setInterval(2500)
+        self._live_refresh_timer.timeout.connect(lambda: self.refresh_all(silent=True))
+        self._live_refresh_timer.start()
         QTimer.singleShot(0, self.refresh_all)
 
     def _build_projects(self) -> None:
@@ -391,8 +406,10 @@ class TeamDetailDialog(QDialog):
         self.invite.clicked.connect(self._invite)
         row.addWidget(self.invite); row.addStretch(1); layout.addLayout(row)
         self.member_list = QListWidget(); layout.addWidget(self.member_list, 1)
+        self.member_list.currentItemChanged.connect(lambda _current, _previous: self._update_permission_controls())
         controls = QHBoxLayout()
         self.role_combo = QComboBox()
+        self.role_combo.currentIndexChanged.connect(lambda _index: self._update_permission_controls())
         self.assign_role_btn = QPushButton("Rol ata" if self.tr else "Assign role")
         self.assign_role_btn.clicked.connect(self._assign_role)
         self.overrides = QPushButton("Kişiye özel yetkiler" if self.tr else "Member-specific permissions")
@@ -413,6 +430,7 @@ class TeamDetailDialog(QDialog):
         row.addWidget(self.new_role); row.addWidget(self.edit_role); row.addWidget(self.visibility); row.addStretch(1); row.addWidget(self.private)
         layout.addLayout(row)
         self.role_list = QListWidget(); layout.addWidget(self.role_list, 1)
+        self.role_list.currentItemChanged.connect(lambda _current, _previous: self._update_permission_controls())
         note = QLabel(
             "Rol seviyesi görünmez ve elle düzenlenmez; sunucu yetkilerden otomatik hesaplar. manage_roles yetkisi olsa bile kişi kendisini, eşit yetkideki veya üst rolü değiştiremez."
             if self.tr else
@@ -443,34 +461,67 @@ class TeamDetailDialog(QDialog):
         self.activity_list = QListWidget(); layout.addWidget(self.activity_list, 1)
         self.tabs.addTab(widget, "Ekip Aktivitesi" if self.tr else "Team Activity")
 
-    def refresh_all(self) -> None:
+    def refresh_all(self, silent: bool = False) -> None:
+        if self._refresh_inflight:
+            self._refresh_pending = True
+            return
+        self._refresh_inflight = True
         self._refresh_generation += 1
         generation = self._refresh_generation
-        self.loading.setText("Ekip bilgileri yükleniyor…" if self.tr else "Loading team information…")
-        self.loading.setVisible(True)
-        self.tabs.setEnabled(False)
+        if not silent:
+            self.loading.setText("Ekip bilgileri yükleniyor…" if self.tr else "Loading team information…")
+            self.loading.setVisible(True)
+            self.tabs.setEnabled(False)
+
+        def finish_and_maybe_repeat() -> None:
+            self._refresh_inflight = False
+            if self._refresh_pending:
+                self._refresh_pending = False
+                QTimer.singleShot(0, lambda: self.refresh_all(silent=True))
 
         def success(snapshot: dict) -> None:
             if generation != self._refresh_generation:
+                finish_and_maybe_repeat()
                 return
+            signature = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, default=str)
+            changed = signature != self._snapshot_signature
+            self._snapshot_signature = signature
             self.projects = snapshot.get("projects", [])
             self.members = snapshot.get("members", [])
             self.roles = snapshot.get("roles", [])
             self.activity = snapshot.get("activity", [])
-            self._render_snapshot()
-            self.loading.setVisible(False)
+            self.viewer = snapshot.get("viewer") if isinstance(snapshot.get("viewer"), dict) else {}
+            if changed:
+                self._render_snapshot()
+            else:
+                self._update_permission_controls()
+            if self.viewer:
+                self.loading.setVisible(False)
+            else:
+                self.loading.setText(
+                    "Supabase ekip şeması eski. Bu sürümdeki supabase/devnest_schema.sql dosyasını SQL Editor'da yeniden çalıştır."
+                    if self.tr else
+                    "Your Supabase team schema is outdated. Re-run this version's supabase/devnest_schema.sql in SQL Editor."
+                )
+                self.loading.setVisible(True)
             self.tabs.setEnabled(True)
+            finish_and_maybe_repeat()
 
         def error(exc: Exception) -> None:
             if generation != self._refresh_generation:
+                finish_and_maybe_repeat()
                 return
             self.loading.setText(str(exc))
             self.loading.setVisible(True)
-            self.tabs.setEnabled(True)
+            self.tabs.setEnabled(False)
+            finish_and_maybe_repeat()
 
         self.runner.submit(lambda: self.service.team_detail_snapshot(str(self.team["id"])), success, error)
 
     def _render_snapshot(self) -> None:
+        selected_member_id = str(self.member_list.currentItem().data(Qt.ItemDataRole.UserRole)) if self.member_list.currentItem() else ""
+        selected_role_id = str(self.role_list.currentItem().data(Qt.ItemDataRole.UserRole)) if self.role_list.currentItem() else ""
+        selected_combo_role = str(self.role_combo.currentData() or "")
         self.project_list.clear()
         for project in self.projects:
             item = QListWidgetItem(f"TEAM · {project.get('name')}\n{project.get('description') or ''}")
@@ -484,12 +535,16 @@ class TeamDetailDialog(QDialog):
             item = QListWidgetItem(f"@{profile.get('username') or member.get('user_id')} · {role.get('name') or '-'}{owner}")
             item.setData(Qt.ItemDataRole.UserRole, str(member.get("user_id")))
             self.member_list.addItem(item)
+            if str(member.get("user_id")) == selected_member_id:
+                self.member_list.setCurrentItem(item)
         self.role_list.clear(); self.role_combo.clear()
         for role in self.roles:
             perms = role.get("permissions") if isinstance(role.get("permissions"), dict) else {}
             count = sum(1 for value in perms.values() if bool(value))
             label = f"{role.get('name')} · {count} yetki" if self.tr else f"{role.get('name')} · {count} permissions"
             item = QListWidgetItem(label); item.setData(Qt.ItemDataRole.UserRole, str(role["id"])); self.role_list.addItem(item)
+            if str(role.get("id")) == selected_role_id:
+                self.role_list.setCurrentItem(item)
             self.role_combo.addItem(str(role.get("name") or "Role"), str(role["id"]))
         self.activity_list.clear()
         for event in self.activity:
@@ -504,8 +559,82 @@ class TeamDetailDialog(QDialog):
             idx = self.resource_project_combo.findData(current_project)
             if idx >= 0: self.resource_project_combo.setCurrentIndex(idx)
         self.resource_project_combo.blockSignals(False)
+        if selected_combo_role:
+            idx = self.role_combo.findData(selected_combo_role)
+            if idx >= 0:
+                self.role_combo.setCurrentIndex(idx)
+        self._update_permission_controls()
         if self.tabs.currentWidget() is not None and self.tabs.tabText(self.tabs.currentIndex()) in {"Online İçerik", "Online Content"}:
             self._load_online_resources()
+
+    def _viewer_permissions(self) -> dict[str, bool]:
+        permissions = self.viewer.get("permissions") if isinstance(self.viewer, dict) else {}
+        return permissions if isinstance(permissions, dict) else {}
+
+    def _can_manage_role(self, role: dict | None) -> bool:
+        if not role:
+            return False
+        if bool(self.viewer.get("is_owner", self.is_owner)):
+            return True
+        permissions = self._viewer_permissions()
+        if not bool(permissions.get("manage_roles")):
+            return False
+        if str(role.get("id") or "") == str(self.viewer.get("role_id") or ""):
+            return False
+        # Built-in Admin/Member definitions are owner-controlled; custom role
+        # managers can only edit lower custom roles.
+        if bool(role.get("is_system")):
+            return False
+        target = role.get("permissions") if isinstance(role.get("permissions"), dict) else {}
+        return permissions_strictly_dominate(permissions, target)
+
+    def _can_manage_member(self, member: dict | None) -> bool:
+        if not member or member.get("is_owner") or str(member.get("user_id")) == self.user_id:
+            return False
+        if bool(self.viewer.get("is_owner", self.is_owner)):
+            return True
+        permissions = self._viewer_permissions()
+        if not bool(permissions.get("manage_roles")):
+            return False
+        target = member.get("effective_permissions")
+        if not isinstance(target, dict):
+            role = member.get("role") if isinstance(member.get("role"), dict) else {}
+            target = role.get("permissions") if isinstance(role.get("permissions"), dict) else {}
+        return permissions_strictly_dominate(permissions, target)
+
+    def _can_assign_role(self, role: dict | None) -> bool:
+        if not role:
+            return False
+        if bool(self.viewer.get("is_owner", self.is_owner)):
+            return True
+        permissions = self._viewer_permissions()
+        if not bool(permissions.get("manage_roles")):
+            return False
+        # The system Admin role is owner-assigned only.
+        if bool(role.get("is_system")) and str(role.get("name") or "").casefold() == "admin":
+            return False
+        target = role.get("permissions") if isinstance(role.get("permissions"), dict) else {}
+        return permissions_strictly_dominate(permissions, target)
+
+    def _update_permission_controls(self) -> None:
+        if not hasattr(self, "assign_role_btn"):
+            return
+        viewer_permissions = self._viewer_permissions()
+        owner = bool(self.viewer.get("is_owner", self.is_owner))
+        can_manage_roles = owner or bool(viewer_permissions.get("manage_roles"))
+        selected_member = self._selected_member()
+        selected_role = self._selected_role()
+        assign_role = next((r for r in self.roles if str(r.get("id")) == str(self.role_combo.currentData() or "")), None)
+
+        self.new_role.setEnabled(can_manage_roles)
+        self.edit_role.setEnabled(self._can_manage_role(selected_role))
+        self.assign_role_btn.setEnabled(self._can_manage_member(selected_member) and self._can_assign_role(assign_role))
+        self.overrides.setEnabled(self._can_manage_member(selected_member))
+        self.invite.setEnabled(owner or bool(viewer_permissions.get("invite_members")))
+        self.visibility.setEnabled(owner or bool(viewer_permissions.get("manage_roles")))
+        self.private.setEnabled(owner or bool(viewer_permissions.get("manage_access")))
+        self.assign.setEnabled(owner)
+        self.remove_project.setEnabled(owner)
 
     def _tab_changed(self, index: int) -> None:
         if self.tabs.tabText(index) in {"Online İçerik", "Online Content"}:
@@ -593,24 +722,29 @@ class TeamDetailDialog(QDialog):
 
     def _assign_role(self) -> None:
         member = self._selected_member(); role_id = self.role_combo.currentData()
-        if not member or not role_id or member.get("is_owner"): return
+        role = next((r for r in self.roles if str(r.get("id")) == str(role_id or "")), None)
+        if not member or not role_id or not self._can_manage_member(member) or not self._can_assign_role(role):
+            QMessageBox.warning(self, "Yetki" if self.tr else "Permission", "Bu üyeye bu rolü atayamazsın." if self.tr else "You cannot assign this role to this member.")
+            return
         try:
-            self.service.assign_role(str(self.team["id"]), str(member["user_id"]), str(role_id)); self.refresh_all()
+            self.service.assign_role(str(self.team["id"]), str(member["user_id"]), str(role_id)); self.refresh_all(silent=True)
         except SupabaseError as exc:
             QMessageBox.warning(self, "Hata" if self.tr else "Error", str(exc))
 
     def _member_overrides(self) -> None:
         member = self._selected_member()
-        if not member or member.get("is_owner"): return
+        if not self._can_manage_member(member):
+            QMessageBox.warning(self, "Yetki" if self.tr else "Permission", "Bu üyeyi yönetemezsin." if self.tr else "You cannot manage this member.")
+            return
         if MemberPermissionsDialog(self.service, str(self.team["id"]), member, self.i18n, self).exec() == QDialog.DialogCode.Accepted:
-            self.refresh_all()
+            self.refresh_all(silent=True)
 
     def _new_role(self) -> None:
         dialog = RoleEditorDialog(self.i18n, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted: return
         name, permissions = dialog.values()
         try:
-            self.service.create_role(str(self.team["id"]), name, permissions); self.refresh_all()
+            self.service.create_role(str(self.team["id"]), name, permissions); self.refresh_all(silent=True)
         except SupabaseError as exc:
             QMessageBox.warning(self, "Hata" if self.tr else "Error", str(exc))
 
@@ -620,12 +754,18 @@ class TeamDetailDialog(QDialog):
 
     def _edit_role(self) -> None:
         role = self._selected_role()
-        if not role: return
+        if not self._can_manage_role(role):
+            QMessageBox.warning(
+                self, "Yetki" if self.tr else "Permission",
+                "Kendi rolünü, sistem rollerini veya senden üst/eşit bir rolü düzenleyemezsin." if self.tr
+                else "You cannot edit your own role, a system role, or an equal/higher role."
+            )
+            return
         dialog = RoleEditorDialog(self.i18n, role, self)
         if dialog.exec() != QDialog.DialogCode.Accepted: return
         name, permissions = dialog.values()
         try:
-            self.service.update_role(str(role["id"]), name, permissions); self.refresh_all()
+            self.service.update_role(str(role["id"]), name, permissions); self.refresh_all(silent=True)
         except SupabaseError as exc:
             QMessageBox.warning(self, "Hata" if self.tr else "Error", str(exc))
 
@@ -654,6 +794,9 @@ class TeamsPage(QWidget):
         self.i18n = i18n
         self.runner = AsyncTaskRunner()
         self._generation = 0
+        self._refresh_inflight = False
+        self._refresh_pending = False
+        self._overview_signature = ""
         root = QVBoxLayout(self)
         root.setContentsMargins(30, 28, 30, 24); root.setSpacing(12)
         head = QHBoxLayout(); titles = QVBoxLayout()
@@ -668,6 +811,10 @@ class TeamsPage(QWidget):
         root.addWidget(scroll, 1)
         self.i18n.languageChanged.connect(lambda _lang: self.retranslate_ui())
         self.retranslate_ui()
+        self._live_refresh_timer = QTimer(self)
+        self._live_refresh_timer.setInterval(4000)
+        self._live_refresh_timer.timeout.connect(self._live_refresh_tick)
+        self._live_refresh_timer.start()
 
     def retranslate_ui(self) -> None:
         tr = self.i18n.language == "tr"
@@ -686,34 +833,63 @@ class TeamsPage(QWidget):
             widget = item.widget()
             if widget: widget.deleteLater()
 
-    def refresh(self, force: bool = False) -> None:
+    def _live_refresh_tick(self) -> None:
+        if self.isVisible() and self.service.client.configured and self.service.client.signed_in:
+            self.refresh(force=True, silent=True)
+
+    def refresh(self, force: bool = False, silent: bool = False) -> None:
+        if self._refresh_inflight:
+            self._refresh_pending = self._refresh_pending or force
+            return
+        self._refresh_inflight = True
         self._generation += 1
         generation = self._generation
-        self._clear_cards()
         tr = self.i18n.language == "tr"
         if not self.service.client.configured or not self.service.client.signed_in:
+            self._refresh_inflight = False
+            self._overview_signature = ""
+            self._clear_cards()
             frame = QFrame(); frame.setObjectName("projectCard"); layout = QVBoxLayout(frame)
             lab = QLabel("Ekipleri kullanmak için DevNest Online'a bağlan." if tr else "Connect to DevNest Online to use Teams."); lab.setWordWrap(True); layout.addWidget(lab)
             button = QPushButton("Online'a bağlan" if tr else "Connect online"); button.setObjectName("primaryButton"); button.clicked.connect(self.onlineRequested); layout.addWidget(button)
             self.cards.addWidget(frame); self.cards.addStretch(1); self.pendingCountChanged.emit(0)
             return
 
-        loading = QFrame(); loading.setObjectName("projectCard"); layout = QVBoxLayout(loading)
-        loading_title = QLabel("Ekipler yükleniyor…" if tr else "Loading teams…"); loading_title.setObjectName("cardTitle"); layout.addWidget(loading_title)
-        loading_hint = QLabel("Tek bir online özet isteği kullanılıyor; ekran yanıt beklerken donmaz." if tr else "Using one online snapshot request; the page remains responsive while it loads.")
-        loading_hint.setObjectName("mutedText"); layout.addWidget(loading_hint)
-        self.cards.addWidget(loading); self.cards.addStretch(1)
-        self.refresh_button.setEnabled(False)
+        if not silent:
+            self._clear_cards()
+            loading = QFrame(); loading.setObjectName("projectCard"); layout = QVBoxLayout(loading)
+            loading_title = QLabel("Ekipler yükleniyor…" if tr else "Loading teams…"); loading_title.setObjectName("cardTitle"); layout.addWidget(loading_title)
+            loading_hint = QLabel("Tek bir online özet isteği kullanılıyor; ekran yanıt beklerken donmaz." if tr else "Using one online snapshot request; the page remains responsive while it loads.")
+            loading_hint.setObjectName("mutedText"); layout.addWidget(loading_hint)
+            self.cards.addWidget(loading); self.cards.addStretch(1)
+            self.refresh_button.setEnabled(False)
+
+        def finish_and_maybe_repeat() -> None:
+            self._refresh_inflight = False
+            if self._refresh_pending:
+                self._refresh_pending = False
+                QTimer.singleShot(0, lambda: self.refresh(force=True, silent=True))
 
         def success(overview: dict) -> None:
-            if generation != self._generation: return
+            if generation != self._generation:
+                finish_and_maybe_repeat()
+                return
             self.refresh_button.setEnabled(True)
-            self._render_overview(overview)
+            signature = json.dumps(overview, ensure_ascii=False, sort_keys=True, default=str)
+            if not (silent and signature == self._overview_signature):
+                self._overview_signature = signature
+                self._render_overview(overview)
+            finish_and_maybe_repeat()
 
         def error(exc: Exception) -> None:
-            if generation != self._generation: return
-            self.refresh_button.setEnabled(True); self._clear_cards()
-            label = QLabel(str(exc)); label.setWordWrap(True); label.setObjectName("helperBanner"); self.cards.addWidget(label); self.cards.addStretch(1); self.pendingCountChanged.emit(0)
+            if generation != self._generation:
+                finish_and_maybe_repeat()
+                return
+            self.refresh_button.setEnabled(True)
+            if not silent:
+                self._clear_cards()
+                label = QLabel(str(exc)); label.setWordWrap(True); label.setObjectName("helperBanner"); self.cards.addWidget(label); self.cards.addStretch(1); self.pendingCountChanged.emit(0)
+            finish_and_maybe_repeat()
 
         self.runner.submit(lambda: self.service.team_overview(force=force), success, error)
 

@@ -7,6 +7,7 @@ import pytest
 
 from app.integrations.supabase.client import SupabaseClient, SupabaseError
 from app.integrations.supabase.config import SupabaseConfig
+from app.services.team_permissions import permissions_strictly_dominate
 
 
 def test_supabase_config_prefers_publishable_key(monkeypatch):
@@ -60,3 +61,20 @@ def test_supabase_config_uses_packaged_public_defaults_without_environment(monke
     assert config.url == "https://tceysmcbqrvdjlvlowcj.supabase.co"
     assert config.publishable_key.startswith("sb_publishable_")
     assert config.configured
+
+
+def test_permission_hierarchy_requires_a_strict_superset() -> None:
+    member_manager = {
+        "view_project": True, "create_note": True, "edit_note": True,
+        "create_decision": True, "edit_decision": True, "edit_architecture": True,
+        "manage_roles": True,
+    }
+    admin = {
+        "view_project": True, "edit_project": True, "create_note": True, "edit_note": True,
+        "delete_note": True, "create_decision": True, "edit_decision": True,
+        "delete_decision": True, "edit_architecture": True, "manage_access": True,
+        "manage_roles": True, "invite_members": True,
+    }
+    assert not permissions_strictly_dominate(member_manager, admin)
+    assert permissions_strictly_dominate(admin, member_manager)
+    assert not permissions_strictly_dominate(admin, dict(admin))
