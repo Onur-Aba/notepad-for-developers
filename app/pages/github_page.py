@@ -53,6 +53,7 @@ class GitHubPage(QWidget):
         self._install_page_opened = False
         self._installation_poll_in_progress = False
         self._installation_poll_attempts = 0
+        self._ui_ready = False
         self.installation_poll_timer = QTimer(self)
         self.installation_poll_timer.setInterval(6000)
         self.installation_poll_timer.timeout.connect(self._poll_for_installation)
@@ -146,7 +147,7 @@ class GitHubPage(QWidget):
         root.addWidget(scroll, 1)
         self.i18n.languageChanged.connect(lambda _language: self.retranslate_ui())
         self.retranslate_ui()
-        self.render_cached()
+        self._ui_ready = True
         self.update_connection_state()
 
     def set_current_project(self, project_id: int | None) -> None:
@@ -180,9 +181,9 @@ class GitHubPage(QWidget):
         self.repos_label.setText(self.i18n.t("github.repos"))
         self.search.setPlaceholderText(self.i18n.t("github.search"))
         self.sort_notice.setText(self.i18n.t("github.sort_notice"))
-        if hasattr(self, "repo_layout"):
+        if self._ui_ready and hasattr(self, "repo_layout"):
             self.render_cached()
-        if hasattr(self, "state_title"):
+        if self._ui_ready and hasattr(self, "state_title"):
             self.update_connection_state()
 
     def _set_connected_controls(self, connected: bool, has_cached_account: bool = False) -> None:

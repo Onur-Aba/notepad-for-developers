@@ -144,6 +144,8 @@ class MainWindow(QMainWindow):
         self._history_refresh_in_progress = False
         self._history_refresh_pending = False
         self._github_state = "disconnected"
+        self._cloud_refresh_in_progress = False
+        self._word_count_cache = 0
 
         self.setWindowTitle(f"{APP_NAME} — Local-first Developer Workspace")
         self.setMinimumSize(1040, 680)
@@ -156,6 +158,14 @@ class MainWindow(QMainWindow):
         self.diagram_timer = QTimer(self)
         self.diagram_timer.setSingleShot(True)
         self.diagram_timer.timeout.connect(self.save_current_diagram)
+        self.stats_timer = QTimer(self)
+        self.stats_timer.setSingleShot(True)
+        self.stats_timer.setInterval(250)
+        self.stats_timer.timeout.connect(self._update_stats)
+        self.resume_timer = QTimer(self)
+        self.resume_timer.setSingleShot(True)
+        self.resume_timer.setInterval(900)
+        self.resume_timer.timeout.connect(self._resume_after_activation)
 
         self._build_ui()
         self._create_actions()
@@ -183,7 +193,7 @@ class MainWindow(QMainWindow):
         self.cloud_poll_timer.setInterval(60000)
         self.cloud_poll_timer.timeout.connect(self._cloud_tick)
         self.cloud_poll_timer.start()
-        QTimer.singleShot(700, self._cloud_tick)
+        QTimer.singleShot(1400, self._cloud_tick)
 
         app = QApplication.instance()
         if app is not None:
@@ -191,7 +201,7 @@ class MainWindow(QMainWindow):
         saved_page = str(self.settings.value("session/last_page", "dashboard") or "dashboard")
         self._navigate(saved_page if saved_page in self.pages else "dashboard")
         self._refresh_notification_button()
-        QTimer.singleShot(0, self._startup_refresh)
+        QTimer.singleShot(1600, self._startup_refresh)
         shown = str(self.settings.value("onboarding/shown", "0")).lower() in {"1", "true", "yes"}
         if not shown:
             QTimer.singleShot(150, self._show_onboarding)
@@ -770,7 +780,7 @@ class MainWindow(QMainWindow):
 
         self.title_edit.textChanged.connect(self._mark_content_dirty)
         self.editor.textChanged.connect(self._on_editor_changed)
-        self.editor.cursorPositionChanged.connect(self._update_stats)
+        self.editor.cursorPositionChanged.connect(self._update_cursor_stats)
         self.editor.currentCharFormatChanged.connect(self._sync_font_controls)
         self.editor.taskStateChanged.connect(self._mark_content_dirty)
         self.editor.numberedListModeChanged.connect(self._sync_numbered_list_action)
@@ -1167,15 +1177,24 @@ class MainWindow(QMainWindow):
                 self.title_edit.blockSignals(True)
                 self.title_edit.setText(title)
                 self.title_edit.blockSignals(False)
+            note_id = self.current_note_id
             self.database.update_note(
-                self.current_note_id,
+                note_id,
                 title,
                 self.editor.document().toHtml(),
                 self.editor.toPlainText(),
             )
             self._dirty = False
             self.save_label.setText(self.i18n.t("status.saved"))
-            self.refresh_sidebar(self.current_note_id)
+            # A full sidebar rebuild creates/deletes every note-card widget. During
+            # long editing sessions that caused avoidable allocations and UI churn.
+            # Update only the current card unless a search filter requires a requery.
+            if self._search_term:
+                self.refresh_sidebar(note_id)
+            else:
+                summary = self.database.get_note_summary(note_id)
+                if summary is not None:
+                    self.sidebar.update_note(summary, self._sort_mode)
         except DatabaseError as exc:
             self.save_label.setText("Kaydetme başarısız" if self.i18n.language == "tr" else "Save failed")
             logger.exception("Autosave failed")
@@ -1207,7 +1226,10 @@ class MainWindow(QMainWindow):
 
     def _on_editor_changed(self) -> None:
         self._mark_content_dirty()
-        self._update_stats()
+        # Word counting scans the whole note. Debounce it so a large document is
+        # not converted/scanned again for every character typed.
+        self.stats_timer.start()
+        self._update_cursor_stats()
 
     def _on_diagram_changed(self) -> None:
         if self._loading_note:
@@ -1225,11 +1247,15 @@ class MainWindow(QMainWindow):
 
     def _update_stats(self) -> None:
         text = self.editor.toPlainText()
-        words = len(re.findall(r"\b\w+\b", text, flags=re.UNICODE))
+        self._word_count_cache = len(re.findall(r"\b\w+\b", text, flags=re.UNICODE))
+        self._update_cursor_stats()
+
+    def _update_cursor_stats(self) -> None:
         lines = max(1, self.editor.document().blockCount())
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.positionInBlock() + 1
+        words = self._word_count_cache
         if self.i18n.language == "tr":
             self.stats_label.setText(f"Kelime: {words}  •  Satır: {lines}  •  Sat {line}, Süt {col}")
         else:
@@ -1925,33 +1951,48 @@ class MainWindow(QMainWindow):
         if not self.supabase_client.configured or not self.supabase_client.signed_in:
             self._update_online_navigation()
             return
-        try:
-            self.supabase_client.ensure_session()
-            self._update_online_navigation()
-            notifications = self.cloud_service.cloud_notifications(unread_only=True)
-            for item in notifications:
-                event_type = str(item.get("event_type") or "cloud")
-                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-                project_id = None
-                title = str(item.get("title") or "DevNest Online")
-                detail = str(item.get("detail") or "")
-                if event_type == "team_invite":
-                    title = "Ekip daveti" if self.i18n.language == "tr" else "Team invitation"
-                self.database.add_notification(
-                    project_id, event_type, title, detail,
-                    notification_key=f"cloud:{item.get('id')}"
-                )
-            if notifications:
-                self.cloud_service.mark_cloud_notifications_read()
-                self._refresh_notification_button()
-            pending = self.cloud_service.pending_invitations()
-            self.global_navigation.set_team_badge(len(pending))
-            # DevNest Online is intentionally manual-sync only. Local project,
-            # note, decision and architecture edits stay on this device until
-            # the user explicitly presses the Online Backup button. This also
-            # gives conflict detection a clear synchronization boundary.
-        except SupabaseError as exc:
-            logger.warning("DevNest Online refresh failed: %s", exc)
+        if self._cloud_refresh_in_progress:
+            return
+        self._cloud_refresh_in_progress = True
+        self.task_runner.submit(
+            self._cloud_tick_worker,
+            self._cloud_tick_ready,
+            self._cloud_tick_failed,
+            lambda: setattr(self, "_cloud_refresh_in_progress", False),
+        )
+
+    def _cloud_tick_worker(self):
+        # Network I/O must never run on Qt's UI thread. Slow DNS/TLS or a waking
+        # laptop previously made the whole window appear frozen during startup or
+        # immediately after returning from the background.
+        self.supabase_client.ensure_session()
+        notifications = self.cloud_service.cloud_notifications(unread_only=True)
+        if notifications:
+            self.cloud_service.mark_cloud_notifications_read()
+        pending = self.cloud_service.pending_invitations()
+        return notifications, pending
+
+    def _cloud_tick_ready(self, result) -> None:
+        notifications, pending = result
+        self._update_online_navigation()
+        for item in notifications:
+            event_type = str(item.get("event_type") or "cloud")
+            project_id = None
+            title = str(item.get("title") or "DevNest Online")
+            detail = str(item.get("detail") or "")
+            if event_type == "team_invite":
+                title = "Ekip daveti" if self.i18n.language == "tr" else "Team invitation"
+            self.database.add_notification(
+                project_id, event_type, title, detail,
+                notification_key=f"cloud:{item.get('id')}"
+            )
+        if notifications:
+            self._refresh_notification_button()
+        self.global_navigation.set_team_badge(len(pending))
+
+    def _cloud_tick_failed(self, exc: Exception) -> None:
+        self._update_online_navigation()
+        logger.warning("DevNest Online refresh failed: %s", exc)
 
     def _open_backup_manager(self) -> None:
         dialog = BackupManagerDialog(self.backup_manager, self.i18n, self)
@@ -2463,11 +2504,33 @@ class MainWindow(QMainWindow):
 
     def _application_state_changed(self, state) -> None:
         if state == Qt.ApplicationState.ApplicationActive:
-            # When the user returns from an editor/terminal, check immediately.
-            # refresh_review_inbox also covers GitHub-only repositories, while the
-            # lightweight HEAD watcher handles local repositories every two seconds.
-            self._check_local_repositories_live()
-            self.refresh_review_inbox()
+            # Give Windows/Qt a short moment to restore and repaint the window.
+            # A full repository review on every Alt-Tab used to compete with that
+            # repaint and made the app look hung. The lightweight HEAD check below
+            # triggers a full review only when a local repository actually changed.
+            if hasattr(self, "local_watch_timer") and not self.local_watch_timer.isActive():
+                self.local_watch_timer.start()
+            if hasattr(self, "repository_poll_timer") and not self.repository_poll_timer.isActive():
+                self._configure_repository_polling()
+            if hasattr(self, "cloud_poll_timer") and not self.cloud_poll_timer.isActive():
+                self.cloud_poll_timer.start()
+            self.resume_timer.start()
+            return
+
+        # Background work is not useful while the window is inactive and may make
+        # returning to the app expensive on slower machines. Pause periodic work;
+        # explicit saves are still flushed on note/page changes and on close.
+        self.resume_timer.stop()
+        if hasattr(self, "local_watch_timer"):
+            self.local_watch_timer.stop()
+        if hasattr(self, "repository_poll_timer"):
+            self.repository_poll_timer.stop()
+        if hasattr(self, "cloud_poll_timer"):
+            self.cloud_poll_timer.stop()
+
+    def _resume_after_activation(self) -> None:
+        self._check_local_repositories_live()
+        self._cloud_tick()
 
     def _configure_repository_polling(self) -> None:
         if not hasattr(self, "repository_poll_timer"):
@@ -2477,12 +2540,11 @@ class MainWindow(QMainWindow):
         self.repository_poll_timer.start()
 
     def _startup_refresh(self) -> None:
-        # Local cached content is already rendered before this runs. Network and Git
-        # history checks happen asynchronously after the event loop starts.
-        self.github_page.update_connection_state()
+        # Cached/local content is already visible. Remote work starts only after the
+        # first paints and is performed asynchronously so startup remains usable.
         if self.preferences.check_repositories_on_startup:
             self.github_page.refresh_if_connected()
-            self.refresh_review_inbox()
+            QTimer.singleShot(1200, self.refresh_review_inbox)
 
     def refresh_review_inbox(self) -> None:
         if self._review_refresh_in_progress:

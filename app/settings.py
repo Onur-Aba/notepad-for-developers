@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QSettings
 
-from app.constants import DEFAULT_AUTOSAVE_DELAY_MS
+from app.constants import DEFAULT_AUTOSAVE_DELAY_MS, MAX_AUTOSAVE_DELAY_MS, MIN_AUTOSAVE_DELAY_MS
 
 
 @dataclass(slots=True)
@@ -28,11 +28,16 @@ class SettingsManager:
         self.qsettings = settings or QSettings()
 
     def preferences(self) -> AppPreferences:
+        try:
+            autosave_delay = int(self.qsettings.value("general/autosave_delay_ms", DEFAULT_AUTOSAVE_DELAY_MS))
+        except (TypeError, ValueError):
+            autosave_delay = DEFAULT_AUTOSAVE_DELAY_MS
+        autosave_delay = max(MIN_AUTOSAVE_DELAY_MS, min(MAX_AUTOSAVE_DELAY_MS, autosave_delay))
         return AppPreferences(
             theme=str(self.qsettings.value("appearance/theme", "system")),
             ui_mode=str(self.qsettings.value("appearance/ui_mode", "classic") or "classic"),
             autosave_enabled=self._bool("general/autosave_enabled", True),
-            autosave_delay_ms=int(self.qsettings.value("general/autosave_delay_ms", DEFAULT_AUTOSAVE_DELAY_MS)),
+            autosave_delay_ms=autosave_delay,
             start_with_last_note=self._bool("general/start_with_last_note", True),
             editor_font_size=int(self.qsettings.value("editor/font_size", 12)),
             tab_width=int(self.qsettings.value("editor/tab_width", 4)),

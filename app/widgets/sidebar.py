@@ -168,6 +168,49 @@ class Sidebar(QWidget):
             self.list.setCurrentItem(selected_item)
         self.list.blockSignals(False)
 
+    def update_note(self, note: NoteSummary, sort_mode: str = "updated") -> None:
+        """Update one visible note card without rebuilding the whole sidebar."""
+        existing = {item.id: item for item in self._notes}
+        existing[note.id] = note
+        notes = list(existing.values())
+        if sort_mode == "title":
+            notes.sort(key=lambda item: (item.title.casefold(), item.updated_at), reverse=False)
+        else:
+            notes.sort(key=lambda item: item.updated_at, reverse=True)
+        self._notes = notes
+
+        row = -1
+        item = None
+        for index in range(self.list.count()):
+            candidate = self.list.item(index)
+            if int(candidate.data(Qt.ItemDataRole.UserRole)) == note.id:
+                row = index
+                item = candidate
+                break
+        if item is None:
+            return
+
+        target_row = next((index for index, value in enumerate(notes) if value.id == note.id), row)
+        self.list.blockSignals(True)
+        try:
+            old_widget = self.list.itemWidget(item)
+            if old_widget is not None:
+                self.list.removeItemWidget(item)
+                old_widget.deleteLater()
+            if target_row != row:
+                item = self.list.takeItem(row)
+                self.list.insertItem(target_row, item)
+            no_content = "İçerik yok" if self.i18n and self.i18n.language == "tr" else "No content"
+            card = NoteCard(note, no_content)
+            hint = card.sizeHint()
+            hint.setHeight(max(82, hint.height() + 10))
+            item.setSizeHint(hint)
+            self.list.setItemWidget(item, card)
+            self.list.setCurrentItem(item)
+            self._selected_id = note.id
+        finally:
+            self.list.blockSignals(False)
+
     def select_note(self, note_id: int) -> None:
         for index in range(self.list.count()):
             item = self.list.item(index)

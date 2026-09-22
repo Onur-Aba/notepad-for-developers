@@ -1490,6 +1490,43 @@ class Database:
         row = self.connection.execute(sql, (note_id,)).fetchone()
         return self._note_from_row(row) if row else None
 
+    def _record_note_update_activity(
+        self, note_id: int, project_id: int, title: str, detail: str, now: str
+    ) -> None:
+        """Record one activity item per editing session instead of per autosave.
+
+        Autosave can fire many times while a note is being edited. Appending an
+        activity row for every save made the SQLite file grow quickly and forced
+        activity/dashboard queries to scan a lot of low-value rows. Updates for
+        the same note are therefore coalesced into the latest event for 15 minutes.
+        """
+        last = self.connection.execute(
+            """SELECT id, created_at FROM activity_events
+               WHERE event_type='note_updated' AND resource_type='note' AND resource_id=?
+               ORDER BY id DESC LIMIT 1""",
+            (str(note_id),),
+        ).fetchone()
+        should_coalesce = False
+        if last is not None:
+            try:
+                previous = datetime.fromisoformat(str(last["created_at"]))
+                current = datetime.fromisoformat(now)
+                should_coalesce = (current - previous).total_seconds() <= 15 * 60
+            except (TypeError, ValueError):
+                should_coalesce = False
+        if should_coalesce:
+            self.connection.execute(
+                """UPDATE activity_events SET project_id=?, title=?, detail=?, created_at=?, metadata_json='{}'
+                   WHERE id=?""",
+                (project_id, title, detail, now, int(last["id"])),
+            )
+            return
+        self.connection.execute(
+            """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
+               VALUES (?, 'note_updated', ?, ?, ?, 'note', ?, '{}')""",
+            (project_id, title, detail, now, str(note_id)),
+        )
+
     def update_note(self, note_id: int, title: str, content_html: str, content_plain: str) -> None:
         now = utc_now_iso()
         safe_title = title.strip() or DEFAULT_NOTE_TITLE
@@ -1517,10 +1554,8 @@ class Database:
                         detail_bits.append(f"{before.title} → {safe_title}")
                     if changed_content:
                         detail_bits.append("content updated")
-                    self.connection.execute(
-                        """INSERT INTO activity_events(project_id,event_type,title,detail,created_at,resource_type,resource_id,metadata_json)
-                           VALUES (?, 'note_updated', ?, ?, ?, 'note', ?, '{}')""",
-                        (project_id, safe_title, " · ".join(detail_bits), now, str(note_id)),
+                    self._record_note_update_activity(
+                        note_id, project_id, safe_title, " · ".join(detail_bits), now
                     )
         except DatabaseError:
             raise
@@ -1545,6 +1580,22 @@ class Database:
         if diagram and any(diagram.get(key) for key in ("items", "paths", "connectors", "edges")):
             self.save_diagram(copy.id, diagram)
         return copy
+
+    def get_note_summary(self, note_id: int) -> NoteSummary | None:
+        row = self.connection.execute(
+            """SELECT id, title,
+                      substr(replace(replace(content_plain, char(10), ' '), char(13), ' '), 1, 140) AS preview,
+                      created_at, updated_at, is_deleted, project_id
+               FROM notes WHERE id=? AND is_deleted=0""",
+            (note_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return NoteSummary(
+            id=int(row["id"]), title=str(row["title"]), preview=str(row["preview"] or ""),
+            created_at=str(row["created_at"]), updated_at=str(row["updated_at"]),
+            is_deleted=bool(row["is_deleted"]), project_id=int(row["project_id"]) if row["project_id"] else None,
+        )
 
     def list_notes(self, search: str = "", sort: str = "updated", project_id: int | None = None) -> list[NoteSummary]:
         where = ["is_deleted = 0", "id NOT IN (SELECT note_id FROM decisions)"]

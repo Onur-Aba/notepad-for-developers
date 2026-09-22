@@ -1,37 +1,41 @@
-# DevNest Windows EXE Build
+# DevNest — Windows EXE build
 
-## 1. GitHub App configuration (one-time on this Windows account)
+## Requirements
 
-If you already ran DevNest from PowerShell with these values, the updated app stores the **public** Client ID and app slug in QSettings automatically:
+- Windows 10/11 64-bit
+- 64-bit Python 3.12 or newer (3.12 or 3.13 recommended)
+- Internet access the first time dependencies are installed
 
-```powershell
-$env:DEVNEST_GITHUB_CLIENT_ID="Iv1.YOUR_PUBLIC_CLIENT_ID"
-$env:DEVNEST_GITHUB_APP_SLUG="your-devnest-app-slug"
-python main.py
-```
+When installing Python from python.org, enable **Add python.exe to PATH**.
 
-The access/refresh tokens are never stored in QSettings or SQLite. They stay in Windows Credential Manager.
+## Recommended clean build
 
-## 2. Build the recommended folder package
-
-Open PowerShell in the project directory with the virtual environment active:
+Open PowerShell in the extracted DevNest project folder and run:
 
 ```powershell
-.\build.ps1
+python --version
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pytest -q
+.\build.ps1 -SkipInstall
 ```
 
-Output:
+The recommended folder build is created at:
 
 ```text
 dist\DevNest\DevNest.exe
 ```
 
-Distribute/copy the whole `dist\DevNest` folder.
+Keep the entire `dist\DevNest` folder together when copying it to another PC.
 
-## 3. Build a single EXE
+## Single-file EXE
+
+After activating the same virtual environment:
 
 ```powershell
-.\build.ps1 -OneFile
+.\build.ps1 -SkipInstall -OneFile
 ```
 
 Output:
@@ -40,8 +44,25 @@ Output:
 dist\DevNest.exe
 ```
 
-The one-file build is convenient, but the normal onedir package is generally easier to troubleshoot.
+The single-file build is convenient, but startup can be a little slower because PyInstaller has to unpack runtime files. For the fastest and easiest-to-debug package, prefer the normal folder build.
 
-## GitHub connection persistence
+## If PowerShell blocks Activate.ps1 or build.ps1
 
-DevNest stores GitHub user and refresh tokens in **Windows Credential Manager** under `DevNest.GitHub`, not in the executable and not in SQLite. Closing/reopening the app therefore does not intentionally disconnect GitHub. If the normal user access token expires, DevNest uses the stored refresh token automatically when GitHub issued one.
+Run this only for the current PowerShell window:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+```
+
+Then run the activation/build command again.
+
+## GitHub App configuration (optional)
+
+If you use the GitHub integration, public Client ID/App Slug values can be supplied as developer overrides:
+
+```powershell
+$env:DEVNEST_GITHUB_CLIENT_ID="Iv1.YOUR_PUBLIC_CLIENT_ID"
+$env:DEVNEST_GITHUB_APP_SLUG="your-devnest-app-slug"
+```
+
+GitHub access/refresh tokens are not embedded in the EXE. On Windows they are stored in Windows Credential Manager.

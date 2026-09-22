@@ -72,3 +72,21 @@ def test_empty_trash_returns_deleted_count(tmp_path: Path) -> None:
         assert db.list_trash() == []
     finally:
         db.close()
+
+
+def test_repeated_note_updates_coalesce_activity_rows(tmp_path: Path) -> None:
+    db = Database(tmp_path / "test.db")
+    try:
+        note = db.create_note("Autosave")
+        db.update_note(note.id, "Autosave", "<p>a</p>", "a")
+        db.update_note(note.id, "Autosave", "<p>ab</p>", "ab")
+        count = db.connection.execute(
+            "SELECT COUNT(*) FROM activity_events WHERE event_type='note_updated' AND resource_type='note' AND resource_id=?",
+            (str(note.id),),
+        ).fetchone()[0]
+        assert count == 1
+        summary = db.get_note_summary(note.id)
+        assert summary is not None
+        assert summary.preview == "ab"
+    finally:
+        db.close()
